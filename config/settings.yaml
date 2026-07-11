@@ -1,0 +1,46 @@
+# ==============================================================================
+# SETTINGS — ค่าจริงที่ระบบ Python ฝั่ง PC ใช้รัน
+# ต่างจาก protocol_contract.yaml ตรงที่ไฟล์นี้คือ "ค่าที่ปรับได้" ไม่ใช่ format สื่อสาร
+# แก้ค่าที่นี่แทนแก้โค้ด เวลา calibrate จริง
+# ==============================================================================
+
+camera:
+  stream_url: "http://192.168.1.159:81/stream"
+  frame_width: 320
+  frame_height: 240
+  # TODO calibrate: มุมมองแนวนอนจริงของ OV2640 ยังไม่วัด ใช้ค่าประมาณจาก datasheet ทั่วไป (~60-65°)
+  horizontal_fov_deg: 60.0
+
+motor_controller:
+  # ต่อจริงแล้ว 2026-07-01 — IP เป็น DHCP-assigned เหมือนกล้อง อาจเปลี่ยนถ้า router แจกใหม่
+  host: "192.168.1.111"
+  port: 5555
+  send_rate_hz: 20   # ต้องเร็วกว่า fail-safe timeout ฝั่ง ESP32 (protocol_contract.yaml timeout_ms) ไม่งั้นบอร์ดจะเข้า safe state เอง
+
+detection:
+  # TODO: กำหนด target จริงของโปรเจค — ตอนนี้ตั้ง "person" ไว้เป็นค่าเริ่มต้นเพื่อทดสอบ pipeline เท่านั้น
+  target_class: "person"
+  conf_threshold: 0.5
+  model_path: "models/yolov8n.pt"   # เล็กสุดของ YOLOv8 — เปลี่ยนเป็นโมเดลที่ train เองภายหลังได้
+
+tracking:
+  algorithm: "kalman"   # ตัดสินใจ 2026-07-01 — ดู decisions.md (เหตุผลอยู่ใน overview.md อยู่แล้ว)
+  process_noise: 1.0
+  measurement_noise: 10.0
+
+aiming:
+  aim_tolerance_px: 15   # ระยะ error ที่ถือว่า "เล็งตรงพอ" จะยิงเลเซอร์ได้ — TODO tune ตอนมีฮาร์ดแวร์จริง
+  pid_pan:  { kp: 0.6, ki: 0.02, kd: 0.15 }
+  pid_tilt: { kp: 0.6, ki: 0.02, kd: 0.15 }
+  # TODO: ค่า PID ทั้งหมดเป็นค่าประมาณเริ่มต้น ต้อง tune จริงหน้างานกับ servo จริง
+
+loop:
+  frequency_hz: 20   # main loop ต้องวิ่งด้วย dt คงที่ (ดู AGENTS.md) เพื่อให้ Kalman/PID คำนวณถูก
+
+control:
+  # TODO: ค่าทั้งหมดในนี้เป็นค่าประมาณเริ่มต้น ต้อง tune จริงตอนมีฮาร์ดแวร์ตีนตะขาบ+ป้อมจริง
+  body_turn_threshold_deg: 45   # pan เกินองศานี้ -> หันตัวรถทั้งคันแทนหมุนป้อมเฉยๆ (AGENTS.md main loop ข้อ 3)
+  body_turn_speed: 120          # 0-255 ตาม TRACK protocol
+  scan_sweep_limit_deg: 60      # กวาดป้อมซ้าย-ขวาไม่เกินกี่องศาตอนไม่เจอเป้า
+  scan_step_deg_per_sec: 30     # ความเร็วกวาด
+  laser_burst_ms: 500           # ระยะเวลายิงต่อครั้งที่เล็งตรงเป้า

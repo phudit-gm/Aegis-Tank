@@ -1,0 +1,142 @@
+# ==============================================================================
+# PROTOCOL CONTRACT — Aegis-Tank
+# ค่าที่ Python (PC) กับ ESP32 ต้องเข้าใจตรงกันเป๊ะ
+# ==============================================================================
+# ทั้งสองฝั่ง MUST อ่านไฟล์นี้ และโค้ดต้องปฏิบัติตามตรงเป๊ะ
+# ถ้า format ต่างจากตรงนี้ ระบบจะพังเงียบๆ (ไม่ error ชัด)
+# แก้ protocol เมื่อไหร่ → เด้ง version + last_updated เสมอ เพื่อ track drift
+# ==============================================================================
+
+version: "1.2"
+date_created: "2026-06-25"
+last_updated: "2026-07-01"
+note: |
+  รื้อใหม่จากโปรเจค R.N.T. — contract เดิม v1.0 (2026-06-11) ยกมาทั้งชุด
+  v1.1: เปลี่ยน network topology เป็น home WiFi
+  v1.2: TURRET/TILT เปลี่ยนจากองศาสัมบูรณ์เป็นทิศทาง+ความเร็ว (ฮาร์ดแวร์จริงไม่มีเซนเซอร์วัดมุม) · LASER เปลี่ยนชื่อเป็น FIRE (ของจริงคือกลไกสปริงยิง ไม่ใช่เลเซอร์) — ดู decisions.md
+  ⚠️ ณ 2026-07-01 เอกสารนี้แก้แล้ว แต่ src/ และ firmware/ ยังไม่ได้แก้ตาม — ห้ามเชื่อว่าโค้ดตรงกับไฟล์นี้จนกว่าจะเช็ค
+
+network:
+  camera:
+    host: "192.168.1.159"
+    port: 80
+    stream_port: 81
+    protocol: "HTTP/TCP"
+    endpoint: "http://192.168.1.159:81/stream"
+    format: "MJPEG"
+    note: |
+      ตัดสินใจ 2026-07-01: ต่อ home WiFi แบบ client (ไม่ทำ AP ของตัวเอง) — ดู decisions.md
+      host เป็น DHCP-assigned IP ของบอร์ดจริง ณ วันที่ทดสอบ — ยังไม่ fix (router อาจแจก IP ใหม่หลัง reboot)
+      TODO ก่อนใช้งานจริงยาว: ตั้ง DHCP reservation ที่ router หรือ static IP ใน firmware ไม่งั้น src/ ฝั่ง PC จะต่อกล้องไม่ติดถ้า IP เปลี่ยน
+  motor_controller:
+    host: "192.168.1.111"
+    port: 5555
+    protocol: "UDP"
+    note: "ส่งคำสั่งทางเดียว ไม่มี TCP handshake — host เป็น DHCP-assigned IP จริง (ต่อ 2026-07-01) อาจเปลี่ยนถ้า router แจกใหม่"
+
+commands:
+  format_overview: |
+    ทุกคำสั่งเป็นรูปแบบ: TYPE:FIELD2:FIELD3
+    - ส่วน 1 (TYPE):  ชนิดคำสั่ง [TRACK | TURRET | TILT | FIRE]
+    - ส่วน 2 (FIELD2): พารามิเตอร์แรก (direction, ON/OFF)
+    - ส่วน 3 (FIELD3): ค่า (speed, duration)
+    - คั่นด้วย ':' (colon) · Encoding UTF-8 bytes
+    v1.2: TURRET/TILT ไม่ส่งองศาสัมบูรณ์แล้ว — ฮาร์ดแวร์จริง (pan/tilt) เป็นมอเตอร์ DC เปล่า
+    ไม่มี potentiometer/encoder วัดมุม จึงสั่ง "ไปมุม X" ตรงๆไม่ได้ ใช้ทิศทาง+ความเร็วแบบเดียวกับ TRACK แทน
+    แล้วอาศัยกล้อง (feedback ทุกเฟรม ~20Hz) ปิด loop แทน sensor ในบอร์ด (visual servoing)
+
+  TRACK:
+    format: "TRACK:direction:speed"
+    field2:
+      name: direction
+      type: "string (enum)"
+      allowed: ["FORWARD", "BACKWARD", "STOP", "TURN_LEFT", "TURN_RIGHT"]
+    field3:
+      name: speed
+      type: integer
+      range: [0, 255]
+      unit: "power level (0=หยุด, 255=สูงสุด) — ESP32 แปลงเป็น PWM ของ L298N#1"
+    example: "TRACK:FORWARD:200"
+
+  TURRET:
+    format: "TURRET:direction:speed"
+    field2:
+      name: direction
+      type: "string (enum)"
+      allowed: ["LEFT", "RIGHT", "STOP"]
+    field3:
+      name: speed
+      type: integer
+      range: [0, 255]
+      unit: "power level (0=หยุด, 255=สูงสุด) — ESP32 แปลงเป็น PWM ของ L298N#2 channel A"
+    hardware_note: |
+      มอเตอร์ DC ผ่าน L298N#2 — ไม่มีเซนเซอร์วัดมุม (ไม่มี potentiometer/encoder)
+      PC สั่งซ้ำทุกรอบ loop (~20Hz) ตาม pixel error ที่เห็นจากกล้อง ไม่ใช่ครั้งเดียวจบ
+    example: "TURRET:LEFT:150"
+
+  TILT:
+    format: "TILT:direction:speed"
+    field2:
+      name: direction
+      type: "string (enum)"
+      allowed: ["DOWN", "STOP"]
+      note: "ไม่มี UP — ก้มลงด้วยมอเตอร์เท่านั้น เงยขึ้นเกิดจากสปริงคืนตัวเอง (passive return) เมื่อสั่ง STOP"
+    field3:
+      name: speed
+      type: integer
+      range: [0, 255]
+      unit: "power level — ESP32 แปลงเป็น PWM ของ L298N#2 channel B"
+    hardware_note: |
+      กลไก: มอเตอร์ DC ตัวเดียวหมุน cam/worm ดันโครงปืน (gun mount) ลงทางเดียวเท่านั้น
+      เงยขึ้น = สปริงคืนตัว (return spring) ดึงโครงปืนขึ้นเองเมื่อมอเตอร์หยุดดัน ไม่ใช้มอเตอร์เลย
+      ไม่มีเซนเซอร์วัดมุม เช่นเดียวกับ TURRET — เป็น open-loop + visual feedback จากกล้อง
+    example: "TILT:DOWN:180"
+
+  FIRE:
+    format: "FIRE:state:duration_ms"
+    field2: { name: state, type: "string (enum)", allowed: ["ON", "OFF"] }
+    field3:
+      name: duration_ms
+      type: integer
+      range: [0, 32767]
+      unit: "milliseconds (ใช้กับ ON; OFF ใส่ 0)"
+    hardware_note: "ชื่อเดิมคือ LASER (เปลี่ยนชื่อ 2026-07-01) — ของจริงคือกลไกยิงแบบสปริง: มอเตอร์ DC หมุนทางเดียวปล่อยสปริงยิง ไม่ใช่เลเซอร์ diode"
+    example: "FIRE:ON:1000"
+
+constraints:
+  clamping:
+    python_side: |
+      Python clamp ก่อนส่ง:
+      - TRACK speed:   max(0, min(255, value))
+      - TURRET speed:  max(0, min(255, value))
+      - TILT speed:    max(0, min(255, value))
+      - FIRE duration: max(0, min(32767, value))
+    esp32_side: |
+      ESP32 clamp ซ้ำก่อนแปลง PWM (authoritative, fail-safe):
+      - อย่าเชื่อว่า Python ส่งค่าถูก — UDP อาจ corrupt/หลุด
+      - clamp ใหม่ทุกค่าที่รับ · ค่านอกช่วง -> log + safe state
+  parsing:
+    esp32: |
+      1. split message ด้วย ':'
+      2. ตรวจจำนวน token (ต้องได้ 3)
+      3. ดู token[0] (TYPE) เพื่อ dispatch
+      4. ตรวจ token[2] (FIELD3) ตามช่วง
+      5. ผิด format/นอกช่วง -> log + ยกเลิกคำสั่ง
+
+network_reliability:
+  note: "UDP ไม่การันตีส่งถึง ต้องมี fail-safe"
+  timeout_ms: 500
+  timeout_behavior: "ไม่ได้รับคำสั่งเกิน 500ms -> หยุดมอเตอร์ทุกตัว + กลับ safe state อัตโนมัติ"
+  default_state: "STOP (track หยุด, turret หยุดหมุน, tilt หยุดดัน [สปริงจะดึงเงยขึ้นเองถ้ายังไม่สุด], fire ปิด)"
+
+notes:
+  why_direction_speed_not_angle: |
+    (แทนที่ why_degree_not_pwm เดิม — 2026-07-01)
+    เดิมคิดว่า pan/tilt เป็น servo (ส่ง degree ให้ ESP32 แปลง PWM เอง) — ของจริงเป็นมอเตอร์ DC เปล่า
+    ไม่มี potentiometer/encoder วัดมุมเลย ส่ง "ไปมุม X" ตรงๆทำไม่ได้ในทางฮาร์ดแวร์
+    เปลี่ยนเป็นส่งทิศทาง+ความเร็วเหมือน TRACK แล้วอาศัยกล้อง (feedback ทุกเฟรม) ปิด loop แทน
+  why_esp32_clamps: |
+    UDP ไม่มี integrity check, packet อาจ corrupt -> ต้องปกป้องมอเตอร์จากค่านอกช่วง
+
+migration_notes: |
+  อัปเดต protocol เมื่อไหร่ ต้องเปลี่ยน version + last_updated เพื่อ track ว่าฝั่งไหนใช้ version ต่างกัน

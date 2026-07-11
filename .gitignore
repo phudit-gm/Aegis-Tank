@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# Node / Web
+node_modules/
+dist/
+build/
+.next/
+
+# Data (ไฟล์ใหญ่)
+data/*.mp4
+data/*.avi
+data/*.mkv
+data/*.csv
+data/*.pkl
+
+# ML Models
+models/*.pt
+models/*.h5
+models/*.onnx
+models/*.bin
+
+# PlatformIO / Firmware
+.pio/
+.pioenvs/
+firmware/**/.vscode/
+firmware/**/monitor.log
+firmware/**/monitor.err
+firmware/**/monitor.pid
+firmware/**/include/secrets.h
+
+# Test artifacts
+scripts/*.jpg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
