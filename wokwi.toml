@@ -1,0 +1,11 @@
+# Wokwi simulation config — จำลอง firmware/esp32_wroom (มอเตอร์คุมป้อม/ตีนตะขาบ)
+# firmware/elf มาจาก PlatformIO build ของ env:esp32wroom (ดู firmware/esp32_wroom/platformio.ini)
+# รัน `pio run -e esp32wroom` ใน firmware/esp32_wroom ก่อน ถึงจะมีไฟล์ .bin/.elf ให้ Wokwi โหลด
+#
+# ⚠️ จำกัด: Wokwi cloud simulator ตรวจ boot/PWM/GPIO/Serial log ได้ แต่ต่อ UDP ไปหา PC จริงบน LAN ไม่ได้
+# ใช้เช็ค pin map/ทิศทางมอเตอร์/fail-safe logic เท่านั้น ไม่ใช่ทดสอบ UDP round-trip แบบ end-to-end
+
+[wokwi]
+version = 1
+firmware = "firmware/esp32_wroom/.pio/build/esp32wroom/firmware.bin"
+elf = "firmware/esp32_wroom/.pio/build/esp32wroom/firmware.elf"

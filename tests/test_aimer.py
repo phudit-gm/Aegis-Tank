@@ -36,28 +36,44 @@ class TestAimer(unittest.TestCase):
             pid_tilt_gains={"kp": 1.0, "ki": 0.0, "kd": 0.0},
         )
 
-    def test_target_at_center_gives_zero_angles(self):
+    def test_target_at_center_gives_stop(self):
         aimer = self._make_aimer()
-        pan, tilt = aimer.compute(160, 120, dt=0.05)
-        self.assertAlmostEqual(pan, 0.0)
-        self.assertAlmostEqual(tilt, 0.0)
+        aim = aimer.compute(160, 120, dt=0.05)
+        self.assertEqual(aim.pan_direction, "STOP")
+        self.assertEqual(aim.pan_speed, 0)
+        self.assertEqual(aim.tilt_direction, "STOP")
+        self.assertEqual(aim.tilt_speed, 0)
 
-    def test_target_right_of_center_gives_positive_pan(self):
+    def test_target_right_of_center_turns_turret_right(self):
         aimer = self._make_aimer()
-        pan, _ = aimer.compute(280, 120, dt=0.05)
-        self.assertGreater(pan, 0.0)
+        aim = aimer.compute(280, 120, dt=0.05)
+        self.assertEqual(aim.pan_direction, "RIGHT")
+        self.assertGreater(aim.pan_speed, 0)
 
-    def test_target_above_center_gives_positive_tilt(self):
+    def test_target_left_of_center_turns_turret_left(self):
         aimer = self._make_aimer()
-        _, tilt = aimer.compute(160, 40, dt=0.05)
-        self.assertGreater(tilt, 0.0)
+        aim = aimer.compute(40, 120, dt=0.05)
+        self.assertEqual(aim.pan_direction, "LEFT")
+        self.assertGreater(aim.pan_speed, 0)
 
-    def test_angles_clamped_to_range(self):
+    def test_target_below_center_tilts_down(self):
         aimer = self._make_aimer()
-        for _ in range(50):
-            pan, tilt = aimer.compute(320, 0, dt=0.1)
-        self.assertLessEqual(pan, 180.0)
-        self.assertLessEqual(tilt, 90.0)
+        aim = aimer.compute(160, 200, dt=0.05)
+        self.assertEqual(aim.tilt_direction, "DOWN")
+        self.assertGreater(aim.tilt_speed, 0)
+
+    def test_target_above_center_cannot_tilt_up_so_stops(self):
+        # ไม่มีคำสั่งมอเตอร์เงยขึ้นได้ (SPEC.md §2) -> ต้อง STOP ไม่ใช่ค่าติดลบ/UP
+        aimer = self._make_aimer()
+        aim = aimer.compute(160, 40, dt=0.05)
+        self.assertEqual(aim.tilt_direction, "STOP")
+        self.assertEqual(aim.tilt_speed, 0)
+
+    def test_speed_clamped_to_max(self):
+        aimer = self._make_aimer()
+        aim = aimer.compute(320, 240, dt=0.1)
+        self.assertLessEqual(aim.pan_speed, 255)
+        self.assertLessEqual(aim.tilt_speed, 255)
 
     def test_is_on_target(self):
         aimer = self._make_aimer()

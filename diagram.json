@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "author": "Aegis-Tank",
+  "editor": "wokwi",
+  "dependencies": {
+    "chip-l298n": "github:drf5n/Wokwi-Chip-L298N@1.0.5"
+  },
+  "parts": [
+    { "id": "esp", "type": "board-esp32-devkit-v1", "left": 0, "top": 100, "attrs": {} },
+
+    { "id": "label_track", "type": "wokwi-text", "left": 500, "top": -100, "attrs": { "text": "L298N #1 — TRACK (ล้อ)\nล้อซ้าย GPIO4/5/13 (เหลือง)\nล้อขวา GPIO16/17/18 (ฟ้า)" } },
+    { "id": "driver_track", "type": "chip-l298n", "left": 500, "top": 0, "attrs": {} },
+
+    { "id": "label_turret_tilt", "type": "wokwi-text", "left": 500, "top": 230, "attrs": { "text": "L298N #2 — TURRET / TILT\nTURRET GPIO19/21/22 (ส้ม)\nTILT GPIO23/25/26 (ม่วง)" } },
+    { "id": "driver_turret_tilt", "type": "chip-l298n", "left": 500, "top": 330, "attrs": {} },
+
+    { "id": "label_fire", "type": "wokwi-text", "left": 500, "top": 560, "attrs": { "text": "FIRE — MOSFET switch เดี่ยว (GPIO27)\nไม่ผ่าน L298N (แดงส้ม)" } },
+    { "id": "r_fire", "type": "wokwi-resistor", "left": 500, "top": 660, "rotate": 90, "attrs": { "value": "220" } },
+    { "id": "led_fire", "type": "wokwi-led", "left": 550, "top": 660, "attrs": { "color": "red", "label": "FIRE (GPIO27)" } },
+
+    { "id": "label_wire_colors", "type": "wokwi-text", "left": 720, "top": 0, "attrs": { "text": "สีสายไฟ\nเหลือง = TRACK ล้อซ้าย\nฟ้า = TRACK ล้อขวา\nส้ม = TURRET\nม่วง = TILT\nแดง = ไฟเลี้ยง 5V\nเทา = GND\nแดงส้ม = FIRE" } }
+  ],
+  "connections": [
+    ["esp:D4",  "driver_track:IN1",  "yellow", ["h100", "v-70", "*"]],
+    ["esp:D5",  "driver_track:IN2",  "yellow", ["h140", "v-58", "*"]],
+    ["esp:D13", "driver_track:EN A", "yellow", ["h-70", "v-46", "*"]],
+    ["esp:RX2", "driver_track:IN3",  "cyan",   ["h180", "v-34", "*"]],
+    ["esp:TX2", "driver_track:IN4",  "cyan",   ["h220", "v-22", "*"]],
+    ["esp:D18", "driver_track:EN B", "cyan",   ["h260", "v-10", "*"]],
+    ["esp:VIN",    "driver_track:5V",  "red",  ["h-110", "v-82", "*"]],
+    ["esp:GND.1",  "driver_track:GND", "gray", ["h-150", "v-94", "*"]],
+
+    ["esp:D19", "driver_turret_tilt:IN1",  "orange", ["h100", "v70", "*"]],
+    ["esp:D21", "driver_turret_tilt:IN2",  "orange", ["h140", "v82", "*"]],
+    ["esp:D22", "driver_turret_tilt:EN A", "orange", ["h180", "v94", "*"]],
+    ["esp:D23", "driver_turret_tilt:IN3",  "purple", ["h220", "v106", "*"]],
+    ["esp:D25", "driver_turret_tilt:IN4",  "purple", ["h-70", "v118", "*"]],
+    ["esp:D26", "driver_turret_tilt:EN B", "purple", ["h-110", "v130", "*"]],
+    ["esp:VIN",    "driver_turret_tilt:5V",  "red",  ["h-150", "v142", "*"]],
+    ["esp:GND.2", "driver_turret_tilt:GND", "gray", ["h260", "v154", "*"]],
+
+    ["esp:D27", "r_fire:1", "orangered", ["h-190", "v300", "*", "h-30"]],
+    ["r_fire:2", "led_fire:A", "orangered", []],
+    ["led_fire:C", "esp:GND.2", "gray", ["h120", "v100", "*", "h-190"]]
+  ]
+}

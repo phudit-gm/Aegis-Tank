@@ -1,5 +1,5 @@
 """ตัวคุมหลัก (orchestrator) — วน main loop ตาม AGENTS.md:
-รับภาพ -> ตรวจจับ+ติดตาม -> ถ้าเจอเป้า: เล็ง+หันตัวรถ+ยิงเลเซอร์ / ถ้าไม่เจอ: กวาดหาเป้า -> รอ dt คงที่ -> วนใหม่
+รับภาพ -> ตรวจจับ+ติดตาม -> ถ้าเจอเป้า: เล็ง+หันตัวรถ+ยิง / ถ้าไม่เจอ: กวาดหาเป้า -> รอ dt คงที่ -> วนใหม่
 
 รันด้วย: python -m src.main
 ต้องมี ESP32-CAM และ ESP32-WROOM ต่ออยู่จริงตาม config/settings.yaml (motor_controller.host ต้องไม่ใช่ null)
@@ -16,23 +16,33 @@ from src.vision.frame_receiver import FrameReceiver
 
 
 class ScanPattern:
-    """กวาดป้อมซ้าย-ขวาระหว่างไม่เจอเป้า (AGENTS.md main loop ข้อ 4)"""
+    """กวาดป้อมซ้าย-ขวาระหว่างไม่เจอเป้า (AGENTS.md main loop ข้อ 4)
 
-    def __init__(self, limit_deg: float, step_deg_per_sec: float):
+    ไม่มีเซนเซอร์วัดมุม — ใช้มุมเสมือน (dead-reckoning โดยประมาณจาก step_deg_per_sec)
+    แค่กำหนดจังหวะสลับทิศ ไม่ใช่ตำแหน่งจริง
+    """
+
+    def __init__(self, limit_deg: float, step_deg_per_sec: float, speed: int):
         self.limit_deg = limit_deg
         self.step_deg_per_sec = step_deg_per_sec
-        self.angle = 0.0
-        self.direction = 1
+        self.speed = speed
+        self._virtual_angle = 0.0
+        self._direction = "RIGHT"
 
-    def step(self, dt: float) -> float:
-        self.angle += self.direction * self.step_deg_per_sec * dt
-        if self.angle >= self.limit_deg:
-            self.angle = self.limit_deg
-            self.direction = -1
-        elif self.angle <= -self.limit_deg:
-            self.angle = -self.limit_deg
-            self.direction = 1
-        return self.angle
+    def reset(self):
+        self._virtual_angle = 0.0
+        self._direction = "RIGHT"
+
+    def step(self, dt: float):
+        sign = 1 if self._direction == "RIGHT" else -1
+        self._virtual_angle += sign * self.step_deg_per_sec * dt
+        if self._virtual_angle >= self.limit_deg:
+            self._virtual_angle = self.limit_deg
+            self._direction = "LEFT"
+        elif self._virtual_angle <= -self.limit_deg:
+            self._virtual_angle = -self.limit_deg
+            self._direction = "RIGHT"
+        return self._direction, self.speed
 
 
 class Orchestrator:
@@ -60,19 +70,25 @@ class Orchestrator:
         ctrl = settings.get("control", {})
         self.body_turn_threshold_deg = ctrl.get("body_turn_threshold_deg", 45)
         self.body_turn_speed = ctrl.get("body_turn_speed", 120)
-        self.laser_burst_ms = ctrl.get("laser_burst_ms", 500)
+        self.fire_burst_ms = ctrl.get("fire_burst_ms", 500)
         self.scan = ScanPattern(
             ctrl.get("scan_sweep_limit_deg", 60),
             ctrl.get("scan_step_deg_per_sec", 30),
+            ctrl.get("scan_speed", 120),
         )
 
         self.dt = 1.0 / settings["loop"]["frequency_hz"]
 
-    def _steer_body(self, pan_angle: float):
-        if pan_angle > self.body_turn_threshold_deg:
-            self.command_sender.track("TURN_RIGHT", self.body_turn_speed)
-        elif pan_angle < -self.body_turn_threshold_deg:
-            self.command_sender.track("TURN_LEFT", self.body_turn_speed)
+    def _steer_body(self, pan_error_deg: float):
+        """เป้าเบี่ยงจากกลางภาพเกิน threshold -> หันตัวรถทั้งคันช่วยป้อม (AGENTS.md main loop ข้อ 3)
+
+        ใช้ pivot-turn (ล้อสองข้างสวนทางกัน) ไม่ใช่ skid-turn — เพราะเป็นสถานการณ์ aim-assist
+        (ตั้งป้อม/พื้นที่แคบ) ต้องการความแม่นยำ ไม่อยากให้ตำแหน่งรถเลื่อนมากเท่า skid (decisions.md)
+        """
+        if pan_error_deg > self.body_turn_threshold_deg:
+            self.command_sender.track("PIVOT_RIGHT", self.body_turn_speed)
+        elif pan_error_deg < -self.body_turn_threshold_deg:
+            self.command_sender.track("PIVOT_LEFT", self.body_turn_speed)
         else:
             self.command_sender.track("STOP", 0)
 
@@ -80,24 +96,24 @@ class Orchestrator:
         self.tracker.update(detection.x, detection.y)
         smooth_x, smooth_y = self.tracker.position
 
-        pan_angle, tilt_angle = self.aimer.compute(smooth_x, smooth_y, dt)
-        self.command_sender.turret(pan_angle)
-        self.command_sender.tilt(tilt_angle)
-        self._steer_body(pan_angle)
+        aim = self.aimer.compute(smooth_x, smooth_y, dt)
+        self.command_sender.turret(aim.pan_direction, aim.pan_speed)
+        self.command_sender.tilt(aim.tilt_direction, aim.tilt_speed)
+        self._steer_body(aim.pan_error_deg)
 
         if self.aimer.is_on_target(smooth_x, smooth_y, self.aim_tolerance_px):
-            self.command_sender.laser("ON", self.laser_burst_ms)
+            self.command_sender.fire("ON", self.fire_burst_ms)
         else:
-            self.command_sender.laser("OFF", 0)
+            self.command_sender.fire("OFF", 0)
 
     def _on_target_lost(self, dt: float):
         self.tracker.reset()
         self.aimer.reset()
-        self.command_sender.laser("OFF", 0)
+        self.command_sender.fire("OFF", 0)
         self.command_sender.track("STOP", 0)
-        scan_angle = self.scan.step(dt)
-        self.command_sender.turret(scan_angle)
-        self.command_sender.tilt(0)
+        scan_direction, scan_speed = self.scan.step(dt)
+        self.command_sender.turret(scan_direction, scan_speed)
+        self.command_sender.tilt("STOP", 0)
 
     def run(self):
         print("Aegis-Tank orchestrator starting...")

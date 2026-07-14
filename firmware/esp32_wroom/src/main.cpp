@@ -15,53 +15,146 @@ uint32_t last_command_ms = 0;
 bool in_safe_state = true;
 bool ota_in_progress = false;
 
+// ── Pin map (ดู hardware/pin_map.md — กำหนด 2026-07-13, ยังไม่ได้ต่อสายจริง) ──
+// L298N#1 — TRACK
+constexpr uint8_t TRACK_L_IN_A = 4, TRACK_L_IN_B = 5, TRACK_L_PWM = 13;
+constexpr uint8_t TRACK_R_IN_A = 16, TRACK_R_IN_B = 17, TRACK_R_PWM = 18;
+// L298N#2 — TURRET/TILT
+constexpr uint8_t TURRET_IN_A = 19, TURRET_IN_B = 21, TURRET_PWM = 22;
+constexpr uint8_t TILT_IN_A = 23, TILT_IN_B = 25, TILT_PWM = 26;
+// FIRE — MOSFET switch, digital only (ไม่ผ่าน L298N — ดู decisions.md)
+constexpr uint8_t FIRE_PIN = 27;
+
+// framework-arduinoespressif32 ที่ pin ไว้เป็น core v2.x -> ledc ใช้ channel number แยกจาก pin
+// (ledcSetup/ledcAttachPin/ledcWrite(channel,...) ไม่ใช่ ledcAttach(pin,...) ของ core v3)
+constexpr uint8_t TRACK_L_PWM_CH = 0, TRACK_R_PWM_CH = 1, TURRET_PWM_CH = 2, TILT_PWM_CH = 3;
+
+constexpr uint32_t PWM_FREQ_HZ = 5000;
+constexpr uint8_t PWM_RESOLUTION_BITS = 8;  // duty 0-255 ตรงกับ speed 0-255 ใน protocol พอดี
+
+uint32_t fire_off_at_ms = 0;
+bool fire_active = false;
+
 // ── Clamp — ESP32 คือด่าน authoritative สุดท้าย (SPEC.md §1) เพราะ UDP อาจ corrupt ──
 long clampl(long v, long lo, long hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// ── มอเตอร์ helper — ขับ 1 channel ของ L298N (IN A/B กำหนดทิศ, ledc channel กำหนดความเร็ว) ──
+// forward=true -> INA=HIGH/INB=LOW, forward=false -> INA=LOW/INB=HIGH, speed=0 -> ทั้งคู่ LOW (coast/stop)
+void driveChannel(uint8_t inA, uint8_t inB, uint8_t pwmChannel, bool forward, uint8_t speed) {
+    if (speed == 0) {
+        digitalWrite(inA, LOW);
+        digitalWrite(inB, LOW);
+    } else {
+        digitalWrite(inA, forward ? HIGH : LOW);
+        digitalWrite(inB, forward ? LOW : HIGH);
+    }
+    ledcWrite(pwmChannel, speed);
+}
+
+void setFire(bool on) {
+    fire_active = on;
+    digitalWrite(FIRE_PIN, on ? HIGH : LOW);
+}
+
+void stopAllMotors() {
+    driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, 0);
+    driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, 0);
+    driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, true, 0);
+    driveChannel(TILT_IN_A, TILT_IN_B, TILT_PWM_CH, true, 0);
+    setFire(false);
+}
+
 void enterSafeState() {
     if (in_safe_state) return;
     in_safe_state = true;
-    Serial.println("[SAFE STATE] motor stop / turret center / tilt level / laser off");
-    // TODO: ต่อ L298N/servo/laser จริงแล้วใส่โค้ดสั่งฮาร์ดแวร์เข้า safe state ตรงนี้
+    stopAllMotors();
+    Serial.println("[SAFE STATE] track stop / turret stop / tilt stop / fire off");
 }
 
 void handleTrack(const char* direction, long speed) {
-    static const char* valid[] = {"FORWARD", "BACKWARD", "STOP", "TURN_LEFT", "TURN_RIGHT"};
-    bool ok = false;
-    for (auto v : valid) {
-        if (strcmp(direction, v) == 0) { ok = true; break; }
-    }
-    if (!ok) {
+    speed = clampl(speed, 0, 255);
+    uint8_t s = (uint8_t)speed;
+
+    if (strcmp(direction, "FORWARD") == 0) {
+        driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, s);
+        driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, s);
+    } else if (strcmp(direction, "BACKWARD") == 0) {
+        driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, false, s);
+        driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, false, s);
+    } else if (strcmp(direction, "STOP") == 0) {
+        driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, 0);
+        driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, 0);
+    } else if (strcmp(direction, "TURN_LEFT") == 0) {
+        // skid-turn: ล้อซ้ายหยุด ล้อขวาขับหน้า
+        driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, 0);
+        driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, s);
+    } else if (strcmp(direction, "TURN_RIGHT") == 0) {
+        driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, s);
+        driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, 0);
+    } else if (strcmp(direction, "PIVOT_LEFT") == 0) {
+        // pivot-turn: ล้อสองข้างสวนทางกัน (ดู decisions.md — ใช้ตอน aim-assist)
+        driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, false, s);
+        driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, s);
+    } else if (strcmp(direction, "PIVOT_RIGHT") == 0) {
+        driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, s);
+        driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, false, s);
+    } else {
         Serial.printf("[DROP] TRACK direction invalid: %s\n", direction);
         return;
     }
-    speed = clampl(speed, 0, 255);
     Serial.printf("[TRACK] %s speed=%ld\n", direction, speed);
-    // TODO: แปลง speed -> PWM ของ L298N #1 (GPIO รอกำหนดใน hardware/pin_map.md)
 }
 
-void handleTurret(long angle) {
-    angle = clampl(angle, -180, 180);
-    Serial.printf("[TURRET] PAN=%ld deg\n", angle);
-    // TODO: แปลง angle -> PWM servo (GPIO รอกำหนด)
+void handleTurret(const char* direction, long speed) {
+    speed = clampl(speed, 0, 255);
+    uint8_t s = (uint8_t)speed;
+
+    if (strcmp(direction, "LEFT") == 0) {
+        driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, false, s);
+    } else if (strcmp(direction, "RIGHT") == 0) {
+        driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, true, s);
+    } else if (strcmp(direction, "STOP") == 0) {
+        driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, true, 0);
+    } else {
+        Serial.printf("[DROP] TURRET direction invalid: %s\n", direction);
+        return;
+    }
+    Serial.printf("[TURRET] %s speed=%ld\n", direction, speed);
 }
 
-void handleTilt(long angle) {
-    angle = clampl(angle, -90, 90);
-    Serial.printf("[TILT] PITCH=%ld deg\n", angle);
-    // TODO: แปลง angle -> PWM servo (GPIO รอกำหนด)
+void handleTilt(const char* direction, long speed) {
+    speed = clampl(speed, 0, 255);
+    uint8_t s = (uint8_t)speed;
+
+    // ทิศ DOWN เท่านั้น (ดันลง) — เงยขึ้นเกิดจากสปริงคืนตัวเองเมื่อ STOP (SPEC.md §1)
+    if (strcmp(direction, "DOWN") == 0) {
+        driveChannel(TILT_IN_A, TILT_IN_B, TILT_PWM_CH, true, s);
+    } else if (strcmp(direction, "STOP") == 0) {
+        driveChannel(TILT_IN_A, TILT_IN_B, TILT_PWM_CH, true, 0);
+    } else {
+        Serial.printf("[DROP] TILT direction invalid: %s\n", direction);
+        return;
+    }
+    Serial.printf("[TILT] %s speed=%ld\n", direction, speed);
 }
 
-void handleLaser(const char* state, long duration_ms) {
+void handleFire(const char* state, long duration_ms) {
     if (strcmp(state, "ON") != 0 && strcmp(state, "OFF") != 0) {
-        Serial.printf("[DROP] LASER state invalid: %s\n", state);
+        Serial.printf("[DROP] FIRE state invalid: %s\n", state);
         return;
     }
     duration_ms = clampl(duration_ms, 0, 32767);
-    Serial.printf("[LASER] %s duration=%ld ms\n", state, duration_ms);
-    // TODO: ขับ GPIO เลเซอร์จริง (GPIO รอกำหนด)
+
+    if (strcmp(state, "ON") == 0) {
+        setFire(true);
+        fire_off_at_ms = millis() + (uint32_t)duration_ms;  // loop() ปิดให้เองแบบ non-blocking
+    } else {
+        setFire(false);
+        fire_off_at_ms = 0;
+    }
+    Serial.printf("[FIRE] %s duration=%ld ms\n", state, duration_ms);
 }
 
 void dispatch(char* msg) {
@@ -83,11 +176,11 @@ void dispatch(char* msg) {
     if (strcmp(type, "TRACK") == 0) {
         handleTrack(field2, atol(field3));
     } else if (strcmp(type, "TURRET") == 0) {
-        handleTurret(atol(field3));
+        handleTurret(field2, atol(field3));
     } else if (strcmp(type, "TILT") == 0) {
-        handleTilt(atol(field3));
-    } else if (strcmp(type, "LASER") == 0) {
-        handleLaser(field2, atol(field3));
+        handleTilt(field2, atol(field3));
+    } else if (strcmp(type, "FIRE") == 0) {
+        handleFire(field2, atol(field3));
     } else {
         Serial.printf("[DROP] unknown TYPE: %s\n", type);
         return;
@@ -97,9 +190,34 @@ void dispatch(char* msg) {
     in_safe_state = false;
 }
 
+void setupMotorPins() {
+    const uint8_t dirPins[] = {
+        TRACK_L_IN_A, TRACK_L_IN_B, TRACK_R_IN_A, TRACK_R_IN_B,
+        TURRET_IN_A, TURRET_IN_B, TILT_IN_A, TILT_IN_B,
+    };
+    for (uint8_t pin : dirPins) {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
+    }
+
+    pinMode(FIRE_PIN, OUTPUT);
+    digitalWrite(FIRE_PIN, LOW);
+
+    const uint8_t pwmPins[] = {TRACK_L_PWM, TRACK_R_PWM, TURRET_PWM, TILT_PWM};
+    const uint8_t pwmChannels[] = {TRACK_L_PWM_CH, TRACK_R_PWM_CH, TURRET_PWM_CH, TILT_PWM_CH};
+    for (uint8_t i = 0; i < 4; i++) {
+        ledcSetup(pwmChannels[i], PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+        ledcAttachPin(pwmPins[i], pwmChannels[i]);
+        ledcWrite(pwmChannels[i], 0);
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.println("\n== Aegis-Tank ESP32-WROOM ==");
+
+    setupMotorPins();
+    Serial.println("Motor pins initialized (see hardware/pin_map.md) -- all outputs LOW/0 duty");
 
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     Serial.printf("Connecting to %s", WIFI_SSID);
@@ -111,7 +229,7 @@ void setup() {
 
     udp.begin(UDP_PORT);
     Serial.printf("Listening UDP on port %u\n", UDP_PORT);
-    Serial.println("Ready (skeleton firmware -- logs commands only, no motor/servo output yet)");
+    Serial.println("Ready -- driving real PWM/GPIO outputs per hardware/pin_map.md");
 
     // ── OTA ───────────────────────────────────────────────────────────────────
     ArduinoOTA.setHostname("aegis-wroom");
@@ -155,5 +273,11 @@ void loop() {
 
     if (!in_safe_state && millis() - last_command_ms > FAILSAFE_TIMEOUT_MS) {
         enterSafeState();
+    }
+
+    if (fire_active && fire_off_at_ms != 0 && millis() >= fire_off_at_ms) {
+        setFire(false);
+        fire_off_at_ms = 0;
+        Serial.println("[FIRE] burst duration elapsed -> auto OFF");
     }
 }

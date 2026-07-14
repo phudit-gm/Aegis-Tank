@@ -28,19 +28,32 @@ class TestCommandSender(unittest.TestCase):
         self.sender.track("FORWARD", 300)  # เกิน range ต้องถูก clamp เป็น 255
         self.assertEqual(self._recv(), "TRACK:FORWARD:255")
 
-    def test_turret_clamp(self):
-        self.sender.turret(200)  # เกิน 180
-        self.assertEqual(self._recv(), "TURRET:PAN:180")
+    def test_track_pivot(self):
+        self.sender.track("PIVOT_LEFT", 150)
+        self.assertEqual(self._recv(), "TRACK:PIVOT_LEFT:150")
 
-    def test_tilt_clamp(self):
-        self.sender.tilt(-999)
-        self.assertEqual(self._recv(), "TILT:PITCH:-90")
+    def test_turret(self):
+        self.sender.turret("LEFT", 300)  # เกิน range ต้องถูก clamp เป็น 255
+        self.assertEqual(self._recv(), "TURRET:LEFT:255")
 
-    def test_laser(self):
-        self.sender.laser("ON", 1000)
-        self.assertEqual(self._recv(), "LASER:ON:1000")
+    def test_turret_invalid_direction(self):
+        with self.assertRaises(ValueError):
+            self.sender.turret("UP", 100)
 
-    def test_invalid_direction(self):
+    def test_tilt(self):
+        self.sender.tilt("DOWN", -10)  # ต่ำกว่า range ต้องถูก clamp เป็น 0
+        self.assertEqual(self._recv(), "TILT:DOWN:0")
+
+    def test_tilt_up_not_allowed(self):
+        # ไม่มี UP ในโปรโตคอล — เงยขึ้นเป็นสปริงคืนตัวเอง (SPEC.md §1)
+        with self.assertRaises(ValueError):
+            self.sender.tilt("UP", 100)
+
+    def test_fire(self):
+        self.sender.fire("ON", 1000)
+        self.assertEqual(self._recv(), "FIRE:ON:1000")
+
+    def test_invalid_track_direction(self):
         with self.assertRaises(ValueError):
             self.sender.track("SIDEWAYS", 100)
 

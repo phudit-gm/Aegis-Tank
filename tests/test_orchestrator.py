@@ -28,9 +28,10 @@ def make_settings(motor_host, motor_port):
         "control": {
             "body_turn_threshold_deg": 45,
             "body_turn_speed": 120,
-            "laser_burst_ms": 500,
+            "fire_burst_ms": 500,
             "scan_sweep_limit_deg": 60,
             "scan_step_deg_per_sec": 30,
+            "scan_speed": 120,
         },
         "loop": {"frequency_hz": 20},
     }
@@ -55,27 +56,35 @@ class TestOrchestrator(unittest.TestCase):
             msgs.append(data.decode("utf-8"))
         return msgs
 
-    def test_target_at_center_stops_body_and_fires_laser(self):
+    def test_target_at_center_stops_body_and_holds_fire(self):
         detection = SimpleNamespace(x=160, y=120)  # ตรงกลางเฟรม 320x240
         self.orchestrator._on_target_found(detection, dt=0.05)
-        msgs = self._recv_all(4)  # turret, tilt, track, laser
-        self.assertTrue(any(m.startswith("TURRET:PAN:0") for m in msgs))
-        self.assertTrue(any(m.startswith("TILT:PITCH:0") for m in msgs))
+        msgs = self._recv_all(4)  # turret, tilt, track, fire
+        self.assertTrue(any(m.startswith("TURRET:STOP:") for m in msgs))
+        self.assertTrue(any(m.startswith("TILT:STOP:") for m in msgs))
         self.assertIn("TRACK:STOP:0", msgs)
-        self.assertTrue(any(m.startswith("LASER:ON:") for m in msgs))
+        self.assertTrue(any(m.startswith("FIRE:ON:") for m in msgs))
+
+    def test_target_off_target_holds_fire_off(self):
+        detection = SimpleNamespace(x=280, y=120)  # ไกลกลางเกิน tolerance
+        self.orchestrator._on_target_found(detection, dt=0.05)
+        msgs = self._recv_all(4)
+        self.assertTrue(any(m.startswith("FIRE:OFF:") for m in msgs))
 
     def test_target_lost_stops_and_scans(self):
         self.orchestrator._on_target_lost(dt=0.1)
-        msgs = self._recv_all(4)  # laser off, track stop, turret, tilt
-        self.assertIn("LASER:OFF:0", msgs)
+        msgs = self._recv_all(4)  # fire off, track stop, turret, tilt
+        self.assertIn("FIRE:OFF:0", msgs)
         self.assertIn("TRACK:STOP:0", msgs)
+        self.assertTrue(any(m.startswith("TILT:STOP:") for m in msgs))
 
-    def test_steer_body_turns_when_off_center(self):
+    def test_steer_body_pivots_when_off_center(self):
+        # aim-assist ใช้ pivot-turn ไม่ใช่ skid-turn (decisions.md 2026-07-13)
         self.orchestrator._steer_body(60)
-        self.assertEqual(self._recv_all(1)[0], "TRACK:TURN_RIGHT:120")
+        self.assertEqual(self._recv_all(1)[0], "TRACK:PIVOT_RIGHT:120")
 
         self.orchestrator._steer_body(-60)
-        self.assertEqual(self._recv_all(1)[0], "TRACK:TURN_LEFT:120")
+        self.assertEqual(self._recv_all(1)[0], "TRACK:PIVOT_LEFT:120")
 
 
 if __name__ == "__main__":

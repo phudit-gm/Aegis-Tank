@@ -23,7 +23,7 @@ PC ส่งคำสั่งไปบอร์ด ESP32-WROOM ผ่าน WiF
 
 | TYPE | FIELD2 | FIELD3 | ความหมาย |
 |---|---|---|---|
-| `TRACK` | ทิศทาง (`FORWARD`/`BACKWARD`/`STOP`/`TURN_LEFT`/`TURN_RIGHT`) | ความเร็ว 0-255 | สั่งล้อตีนตะขาบเคลื่อนที่ |
+| `TRACK` | ทิศทาง (`FORWARD`/`BACKWARD`/`STOP`/`TURN_LEFT`/`TURN_RIGHT`/`PIVOT_LEFT`/`PIVOT_RIGHT`) | ความเร็ว 0-255 | สั่งล้อตีนตะขาบเคลื่อนที่ — `TURN_*` = skid-turn (ข้างหนึ่งหยุด), `PIVOT_*` = หมุนสวนทางกันทั้งสองข้าง (ใช้ตอน aim-assist) |
 | `TURRET` | ทิศทาง (`LEFT`/`RIGHT`/`STOP`) | ความเร็ว 0-255 | หมุนป้อมซ้าย/ขวา (มอเตอร์ DC ผ่าน L298N#2 — ไม่มี feedback วัดมุม) |
 | `TILT` | ทิศทาง (`DOWN`/`STOP` เท่านั้น — **ไม่มี `UP`**) | ความเร็ว 0-255 | ดันลำกล้องก้มลง (มอเตอร์ DC ตัวเดียวดันทางเดียว) — เงยขึ้นเกิดจากสปริงคืนตัวเอง ไม่มีคำสั่งมอเตอร์ |
 | `FIRE` | `ON`/`OFF` | ระยะเวลา ms | สั่งกลไกยิง (มอเตอร์ DC หมุนทางเดียวปล่อยสปริงยิง — **ไม่ใช่เลเซอร์**) |
@@ -79,12 +79,15 @@ PC คำนวณ error จากตำแหน่งเป้าในภา�
 8. **อัลกอริทึม tracking = Kalman filter (constant-velocity)** ไม่ใช่ centroid ธรรมดา
 9. **Pan/Tilt ส่งทิศทาง+ความเร็วทุกรอบ loop (visual servoing ผ่านกล้อง)** ไม่ใช่องศาสัมบูรณ์ — เพราะฮาร์ดแวร์จริงไม่มีเซนเซอร์วัดมุม (ดู `decisions.md`)
 10. **เปลี่ยนชื่อคำสั่ง `LASER` → `FIRE`** — ของจริงคือกลไกสปริงยิงด้วยมอเตอร์ DC ไม่ใช่เลเซอร์ diode
+11. **`TRACK` แยก skid-turn (`TURN_LEFT`/`TURN_RIGHT`) กับ pivot-turn (`PIVOT_LEFT`/`PIVOT_RIGHT`)** — PC เลือกใช้ pivot ตอน aim-assist (`_steer_body`), เก็บ skid ไว้ให้การเคลื่อนที่ทั่วไปในอนาคต (ดู `decisions.md`)
+12. **FIRE ขับผ่าน MOSFET switch 1 GPIO** ไม่ใช่ L298N channel ที่ 3 — L298N สองตัว (4 channel) พอดีกับ TRACK×2/TURRET/TILT อยู่แล้ว FIRE เป็น ON/OFF ทิศเดียวไม่ต้องกลับทิศ (ดู `hardware/pin_map.md`, `decisions.md`)
+13. **Pin map ของ ESP32-WROOM กำหนดแล้ว** (ดู `hardware/pin_map.md`) — ยังไม่ได้ต่อสายจริง
 
 ---
 
 ## 4. ยังรอตัดสิน (TODO)
 
-- **⚠️ โค้ดยังไม่ตรงกับ protocol ใหม่ (สำคัญ):** `src/logic/aimer.py`, `src/actuators/command_sender.py`, `src/main.py`, `firmware/esp32_wroom/src/main.cpp` ที่เขียนไปแล้ว (2026-07-01 รอบแรก) ยังใช้รูปแบบเก่า (`TURRET:PAN:angle`, `TILT:PITCH:angle`, `LASER:...`) — ต้องแก้ให้ตรงกับข้อ 9-10 ใน §3 ก่อนใช้งานจริง (แก้เฉพาะเอกสารก่อนตามที่ตกลงกัน โค้ดยังไม่แตะ)
+- **✅ โค้ดแก้ให้ตรงกับ protocol ใหม่แล้ว (2026-07-13):** `src/logic/aimer.py`, `src/actuators/command_sender.py`, `src/main.py`, `firmware/esp32_wroom/src/main.cpp` ใช้รูปแบบ `TURRET:direction:speed`, `TILT:direction:speed`, `FIRE:...` ตรงข้อ 9-10 ใน §3 แล้ว — unit test ผ่านหมด แต่ **ยังไม่ได้ flash firmware ตัวใหม่ลงบอร์ดจริง/ทดสอบ UDP round-trip** และ **PID gains ยังไม่ tune ใหม่** (ดู `handoff/current-task.md`)
 - **ค่าจริงที่ยังไม่ fix:** PWM speed range จริงของมอเตอร์ pan/tilt/fire (คนละมอเตอร์กับ track อาจต้องคนละ range), PID gains จริง (มีค่าประมาณเริ่มต้นใน `config/settings.yaml` แล้ว แต่ยัง**ไม่ได้ tune กับฮาร์ดแวร์จริง** — ต้อง tune ใหม่หมดเพราะเปลี่ยนจาก position-PID เป็น velocity/effort-PID), horizontal/vertical FOV (ค่าประมาณ 60° ยังไม่ calibrate)
 - **DHCP IP ของทั้งสองบอร์ดไม่ fix:** ถ้า router แจก IP ใหม่ ต้องอัปเดต `config/settings.yaml` เอง (ยังไม่ตั้ง DHCP reservation/static IP)
 - **TARGET_CLASS / CONF_THRESHOLD / AIM_TOLERANCE:** ตั้งค่า placeholder ไว้ทดสอบ pipeline แล้ว (`person`, `0.5`, `15px`) — ยังไม่ใช่ target จริงของโปรเจค รอกำหนด
