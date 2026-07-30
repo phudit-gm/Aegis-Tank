@@ -25,7 +25,7 @@ class TestCommandSender(unittest.TestCase):
         return data.decode("utf-8")
 
     def test_track(self):
-        self.sender.track("FORWARD", 300)  # เกิน range ต้องถูก clamp เป็น 255
+        self.sender.track("FORWARD", 300)  # exceeds range, must be clamped to 255
         self.assertEqual(self._recv(), "TRACK:FORWARD:255")
 
     def test_track_pivot(self):
@@ -33,7 +33,7 @@ class TestCommandSender(unittest.TestCase):
         self.assertEqual(self._recv(), "TRACK:PIVOT_LEFT:150")
 
     def test_turret(self):
-        self.sender.turret("LEFT", 300)  # เกิน range ต้องถูก clamp เป็น 255
+        self.sender.turret("LEFT", 300)  # exceeds range, must be clamped to 255
         self.assertEqual(self._recv(), "TURRET:LEFT:255")
 
     def test_turret_invalid_direction(self):
@@ -41,11 +41,11 @@ class TestCommandSender(unittest.TestCase):
             self.sender.turret("UP", 100)
 
     def test_tilt(self):
-        self.sender.tilt("DOWN", -10)  # ต่ำกว่า range ต้องถูก clamp เป็น 0
+        self.sender.tilt("DOWN", -10)  # below range, must be clamped to 0
         self.assertEqual(self._recv(), "TILT:DOWN:0")
 
     def test_tilt_up_not_allowed(self):
-        # ไม่มี UP ในโปรโตคอล — เงยขึ้นเป็นสปริงคืนตัวเอง (SPEC.md §1)
+        # No UP in the protocol — tilting up is via return spring (SPEC.md §1)
         with self.assertRaises(ValueError):
             self.sender.tilt("UP", 100)
 

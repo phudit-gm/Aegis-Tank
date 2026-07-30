@@ -1,8 +1,8 @@
-"""ตัวคุมหลัก (orchestrator) — วน main loop ตาม AGENTS.md:
-รับภาพ -> ตรวจจับ+ติดตาม -> ถ้าเจอเป้า: เล็ง+หันตัวรถ+ยิง / ถ้าไม่เจอ: กวาดหาเป้า -> รอ dt คงที่ -> วนใหม่
+"""Main controller (orchestrator) — runs the main loop per AGENTS.md:
+receive frame -> detect+track -> if target found: aim+turn body+fire / if not found: scan for target -> wait fixed dt -> loop again
 
-รันด้วย: python -m src.main
-ต้องมี ESP32-CAM และ ESP32-WROOM ต่ออยู่จริงตาม config/settings.yaml (motor_controller.host ต้องไม่ใช่ null)
+Run with: python -m src.main
+Requires a real ESP32-CAM and ESP32-WROOM connected per config/settings.yaml (motor_controller.host must not be null)
 """
 
 import time
@@ -16,10 +16,10 @@ from src.vision.frame_receiver import FrameReceiver
 
 
 class ScanPattern:
-    """กวาดป้อมซ้าย-ขวาระหว่างไม่เจอเป้า (AGENTS.md main loop ข้อ 4)
+    """Sweeps the turret left-right while no target is found (AGENTS.md main loop item 4)
 
-    ไม่มีเซนเซอร์วัดมุม — ใช้มุมเสมือน (dead-reckoning โดยประมาณจาก step_deg_per_sec)
-    แค่กำหนดจังหวะสลับทิศ ไม่ใช่ตำแหน่งจริง
+    No angle sensor — uses a virtual angle (dead-reckoning estimated from step_deg_per_sec),
+    only used to time direction switches, not a real position.
     """
 
     def __init__(self, limit_deg: float, step_deg_per_sec: float, speed: int):
@@ -80,10 +80,11 @@ class Orchestrator:
         self.dt = 1.0 / settings["loop"]["frequency_hz"]
 
     def _steer_body(self, pan_error_deg: float):
-        """เป้าเบี่ยงจากกลางภาพเกิน threshold -> หันตัวรถทั้งคันช่วยป้อม (AGENTS.md main loop ข้อ 3)
+        """If target deviates from image center beyond the threshold -> turn the whole vehicle body to help the turret (AGENTS.md main loop item 3)
 
-        ใช้ pivot-turn (ล้อสองข้างสวนทางกัน) ไม่ใช่ skid-turn — เพราะเป็นสถานการณ์ aim-assist
-        (ตั้งป้อม/พื้นที่แคบ) ต้องการความแม่นยำ ไม่อยากให้ตำแหน่งรถเลื่อนมากเท่า skid (decisions.md)
+        Uses pivot-turn (both wheels opposite directions) not skid-turn — because this is the
+        aim-assist scenario (aiming/tight space) requiring precision, we don't want the vehicle
+        position to shift as much as with skid-turn (decisions.md)
         """
         if pan_error_deg > self.body_turn_threshold_deg:
             self.command_sender.track("PIVOT_RIGHT", self.body_turn_speed)

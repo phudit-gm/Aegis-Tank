@@ -12,7 +12,7 @@ dist/
 build/
 .next/
 
-# Data (ไฟล์ใหญ่)
+# Data (large files)
 data/*.mp4
 data/*.avi
 data/*.mkv
@@ -33,6 +33,8 @@ firmware/**/monitor.log
 firmware/**/monitor.err
 firmware/**/monitor.pid
 firmware/**/include/secrets.h
+firmware/**/compile_commands.json
+firmware/**/.cache/
 
 # Test artifacts
 scripts/*.jpg

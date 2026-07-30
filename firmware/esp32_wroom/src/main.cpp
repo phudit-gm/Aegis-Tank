@@ -5,7 +5,7 @@
 #include "esp_ota_ops.h"
 #include "secrets.h"
 
-// ── UDP (ตาม config/protocol_contract.yaml -> motor_controller) ─────────────
+// ── UDP (per config/protocol_contract.yaml -> motor_controller) ─────────────
 constexpr uint16_t UDP_PORT = 5555;
 constexpr uint32_t FAILSAFE_TIMEOUT_MS = 500;
 
@@ -15,33 +15,34 @@ uint32_t last_command_ms = 0;
 bool in_safe_state = true;
 bool ota_in_progress = false;
 
-// ── Pin map (ดู hardware/pin_map.md — กำหนด 2026-07-13, ยังไม่ได้ต่อสายจริง) ──
+// ── Pin map (see hardware/pin_map.md — defined 2026-07-13, remapped 2026-07-30) ──
 // L298N#1 — TRACK
+// TRACK right uses GPIO32/33 (not 16/17) — many DevKit boards do not break out 16/17
 constexpr uint8_t TRACK_L_IN_A = 4, TRACK_L_IN_B = 5, TRACK_L_PWM = 13;
-constexpr uint8_t TRACK_R_IN_A = 16, TRACK_R_IN_B = 17, TRACK_R_PWM = 18;
+constexpr uint8_t TRACK_R_IN_A = 32, TRACK_R_IN_B = 33, TRACK_R_PWM = 18;
 // L298N#2 — TURRET/TILT
 constexpr uint8_t TURRET_IN_A = 19, TURRET_IN_B = 21, TURRET_PWM = 22;
 constexpr uint8_t TILT_IN_A = 23, TILT_IN_B = 25, TILT_PWM = 26;
-// FIRE — MOSFET switch, digital only (ไม่ผ่าน L298N — ดู decisions.md)
+// FIRE — MOSFET switch, digital only (does not go through the L298N — see decisions.md)
 constexpr uint8_t FIRE_PIN = 27;
 
-// framework-arduinoespressif32 ที่ pin ไว้เป็น core v2.x -> ledc ใช้ channel number แยกจาก pin
-// (ledcSetup/ledcAttachPin/ledcWrite(channel,...) ไม่ใช่ ledcAttach(pin,...) ของ core v3)
+// the framework-arduinoespressif32 pinned to core v2.x -> ledc uses a channel number separate from the pin
+// (ledcSetup/ledcAttachPin/ledcWrite(channel,...), not the ledcAttach(pin,...) of core v3)
 constexpr uint8_t TRACK_L_PWM_CH = 0, TRACK_R_PWM_CH = 1, TURRET_PWM_CH = 2, TILT_PWM_CH = 3;
 
 constexpr uint32_t PWM_FREQ_HZ = 5000;
-constexpr uint8_t PWM_RESOLUTION_BITS = 8;  // duty 0-255 ตรงกับ speed 0-255 ใน protocol พอดี
+constexpr uint8_t PWM_RESOLUTION_BITS = 8;  // duty 0-255 matches speed 0-255 in the protocol exactly
 
 uint32_t fire_off_at_ms = 0;
 bool fire_active = false;
 
-// ── Clamp — ESP32 คือด่าน authoritative สุดท้าย (SPEC.md §1) เพราะ UDP อาจ corrupt ──
+// ── Clamp — the ESP32 is the final authoritative gate (SPEC.md §1) because UDP may get corrupted ──
 long clampl(long v, long lo, long hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// ── มอเตอร์ helper — ขับ 1 channel ของ L298N (IN A/B กำหนดทิศ, ledc channel กำหนดความเร็ว) ──
-// forward=true -> INA=HIGH/INB=LOW, forward=false -> INA=LOW/INB=HIGH, speed=0 -> ทั้งคู่ LOW (coast/stop)
+// ── Motor helper — drives 1 channel of the L298N (IN A/B set direction, ledc channel sets speed) ──
+// forward=true -> INA=HIGH/INB=LOW, forward=false -> INA=LOW/INB=HIGH, speed=0 -> both LOW (coast/stop)
 void driveChannel(uint8_t inA, uint8_t inB, uint8_t pwmChannel, bool forward, uint8_t speed) {
     if (speed == 0) {
         digitalWrite(inA, LOW);
@@ -87,14 +88,14 @@ void handleTrack(const char* direction, long speed) {
         driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, 0);
         driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, 0);
     } else if (strcmp(direction, "TURN_LEFT") == 0) {
-        // skid-turn: ล้อซ้ายหยุด ล้อขวาขับหน้า
+        // skid-turn: left wheel stops, right wheel drives forward
         driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, 0);
         driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, s);
     } else if (strcmp(direction, "TURN_RIGHT") == 0) {
         driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, true, s);
         driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, 0);
     } else if (strcmp(direction, "PIVOT_LEFT") == 0) {
-        // pivot-turn: ล้อสองข้างสวนทางกัน (ดู decisions.md — ใช้ตอน aim-assist)
+        // pivot-turn: both wheels spin opposite directions (see decisions.md — used during aim-assist)
         driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, false, s);
         driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, true, s);
     } else if (strcmp(direction, "PIVOT_RIGHT") == 0) {
@@ -128,7 +129,7 @@ void handleTilt(const char* direction, long speed) {
     speed = clampl(speed, 0, 255);
     uint8_t s = (uint8_t)speed;
 
-    // ทิศ DOWN เท่านั้น (ดันลง) — เงยขึ้นเกิดจากสปริงคืนตัวเองเมื่อ STOP (SPEC.md §1)
+    // Only DOWN direction (pushes down) — tilting up comes from the return spring when STOP is issued (SPEC.md §1)
     if (strcmp(direction, "DOWN") == 0) {
         driveChannel(TILT_IN_A, TILT_IN_B, TILT_PWM_CH, true, s);
     } else if (strcmp(direction, "STOP") == 0) {
@@ -149,7 +150,7 @@ void handleFire(const char* state, long duration_ms) {
 
     if (strcmp(state, "ON") == 0) {
         setFire(true);
-        fire_off_at_ms = millis() + (uint32_t)duration_ms;  // loop() ปิดให้เองแบบ non-blocking
+        fire_off_at_ms = millis() + (uint32_t)duration_ms;  // loop() turns it off automatically, non-blocking
     } else {
         setFire(false);
         fire_off_at_ms = 0;
@@ -163,7 +164,7 @@ void dispatch(char* msg) {
         return;
     }
 
-    // แยก 3 ส่วนด้วย ':' ตาม SPEC.md §1 — parser ไม่ต้องมีกรณีพิเศษ
+    // Split into 3 parts by ':' per SPEC.md §1 — parser doesn't need special cases
     char* type = strtok(msg, ":");
     char* field2 = strtok(nullptr, ":");
     char* field3 = strtok(nullptr, ":");

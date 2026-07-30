@@ -1,47 +1,47 @@
 # ==============================================================================
-# SETTINGS — ค่าจริงที่ระบบ Python ฝั่ง PC ใช้รัน
-# ต่างจาก protocol_contract.yaml ตรงที่ไฟล์นี้คือ "ค่าที่ปรับได้" ไม่ใช่ format สื่อสาร
-# แก้ค่าที่นี่แทนแก้โค้ด เวลา calibrate จริง
+# SETTINGS — the real tunable values the PC-side Python system runs with
+# Unlike protocol_contract.yaml, this file holds "values you adjust" rather than the wire format
+# Change values here instead of the code when calibrating for real
 # ==============================================================================
 
 camera:
-  stream_url: "http://192.168.1.159:81/stream"
+  stream_url: "http://192.0.2.10:81/stream"  # placeholder (RFC 5737 TEST-NET-1) — replace with your ESP32-CAM's actual DHCP-assigned IP
   frame_width: 320
   frame_height: 240
-  # TODO calibrate: มุมมองแนวนอนจริงของ OV2640 ยังไม่วัด ใช้ค่าประมาณจาก datasheet ทั่วไป (~60-65°)
+  # TODO calibrate: the real horizontal FOV of the OV2640 hasn't been measured, using an estimate from typical datasheets (~60-65°)
   horizontal_fov_deg: 60.0
 
 motor_controller:
-  # ต่อจริงแล้ว 2026-07-01 — IP เป็น DHCP-assigned เหมือนกล้อง อาจเปลี่ยนถ้า router แจกใหม่
-  host: "192.168.1.111"
+  # Actually connected 2026-07-01 — IP is DHCP-assigned like the camera, may change if the router reassigns
+  host: "192.0.2.11"  # placeholder (RFC 5737 TEST-NET-1) — replace with your ESP32-WROOM's actual DHCP-assigned IP
   port: 5555
-  send_rate_hz: 20   # ต้องเร็วกว่า fail-safe timeout ฝั่ง ESP32 (protocol_contract.yaml timeout_ms) ไม่งั้นบอร์ดจะเข้า safe state เอง
+  send_rate_hz: 20   # must be faster than the ESP32-side fail-safe timeout (protocol_contract.yaml timeout_ms), otherwise the board will enter safe state on its own
 
 detection:
-  # TODO: กำหนด target จริงของโปรเจค — ตอนนี้ตั้ง "person" ไว้เป็นค่าเริ่มต้นเพื่อทดสอบ pipeline เท่านั้น
+  # TODO: define the project's real target — currently set to "person" as default just to test the pipeline
   target_class: "person"
   conf_threshold: 0.5
-  model_path: "models/yolov8n.pt"   # เล็กสุดของ YOLOv8 — เปลี่ยนเป็นโมเดลที่ train เองภายหลังได้
+  model_path: "models/yolov8n.pt"   # smallest of YOLOv8 — can be changed to a self-trained model later
 
 tracking:
-  algorithm: "kalman"   # ตัดสินใจ 2026-07-01 — ดู decisions.md (เหตุผลอยู่ใน overview.md อยู่แล้ว)
+  algorithm: "kalman"   # Decided 2026-07-01 — see decisions.md (reasoning already in overview.md)
   process_noise: 1.0
   measurement_noise: 10.0
 
 aiming:
-  aim_tolerance_px: 15   # ระยะ error ที่ถือว่า "เล็งตรงพอ" จะยิงเลเซอร์ได้ — TODO tune ตอนมีฮาร์ดแวร์จริง
+  aim_tolerance_px: 15   # the error distance considered "aimed accurately enough" to fire — TODO tune once real hardware exists
   pid_pan:  { kp: 0.6, ki: 0.02, kd: 0.15 }
   pid_tilt: { kp: 0.6, ki: 0.02, kd: 0.15 }
-  # TODO: ค่า PID ทั้งหมดเป็นค่าประมาณเริ่มต้น ต้อง tune จริงหน้างานกับ servo จริง
+  # TODO: all PID values are rough starting estimates, need real tuning on-site with real servos
 
 loop:
-  frequency_hz: 20   # main loop ต้องวิ่งด้วย dt คงที่ (ดู AGENTS.md) เพื่อให้ Kalman/PID คำนวณถูก
+  frequency_hz: 20   # main loop must run with a fixed dt (see AGENTS.md) so Kalman/PID compute correctly
 
 control:
-  # TODO: ค่าทั้งหมดในนี้เป็นค่าประมาณเริ่มต้น ต้อง tune จริงตอนมีฮาร์ดแวร์ตีนตะขาบ+ป้อมจริง
-  body_turn_threshold_deg: 45   # pan เกินองศานี้ -> หันตัวรถทั้งคันแทนหมุนป้อมเฉยๆ (AGENTS.md main loop ข้อ 3)
-  body_turn_speed: 120          # 0-255 ตาม TRACK protocol
-  scan_sweep_limit_deg: 60      # มุมเสมือน (ประมาณ, ไม่มีเซนเซอร์วัดจริง) ที่ใช้กำหนดจังหวะสลับทิศกวาด
-  scan_step_deg_per_sec: 30     # อัตราสะสมมุมเสมือนต่อวินาที ใช้แค่จับเวลา ไม่ใช่ตำแหน่งจริง
-  scan_speed: 120               # ความเร็วมอเตอร์ป้อมตอนกวาดหาเป้า (0-255 ตาม TURRET protocol)
-  fire_burst_ms: 500            # ระยะเวลายิงต่อครั้งที่เล็งตรงเป้า
+  # TODO: all values here are rough starting estimates, need real tuning once real tracks+turret hardware exists
+  body_turn_threshold_deg: 45   # pan beyond this many degrees -> turn the whole vehicle body instead of just the turret (AGENTS.md main loop item 3)
+  body_turn_speed: 120          # 0-255 per the TRACK protocol
+  scan_sweep_limit_deg: 60      # virtual angle (estimated, no real sensor) used to time the sweep direction switch
+  scan_step_deg_per_sec: 30     # virtual angle accumulation rate per second, only used for timing, not a real position
+  scan_speed: 120               # turret motor speed while scanning for a target (0-255 per the TURRET protocol)
+  fire_burst_ms: 500            # fire duration per burst when aimed on target

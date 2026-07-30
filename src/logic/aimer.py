@@ -1,12 +1,12 @@
-"""ตัวเล็ง — แปลง error พิกเซล -> องศา error (SPEC.md §2) แล้วผ่าน PID ให้ได้ (ทิศทาง, ความเร็ว) สั่งมอเตอร์รอบนี้
+"""Aimer — converts pixel error -> degree error (SPEC.md §2), then runs it through PID to get (direction, speed) motor commands for this cycle
 
-ไม่มี absolute angle อีกต่อไป (ฮาร์ดแวร์จริงไม่มีเซนเซอร์วัดมุม — ดู decisions.md) —
-PID ทำงานบน error พิกเซลรอบต่อรอบ (visual servoing) แล้ว output effort ถูกแปลงเป็นทิศทาง+ความเร็วตรงๆ
+No absolute angle anymore (real hardware has no angle sensor — see decisions.md) —
+PID works on per-cycle pixel error (visual servoing), then output effort is converted directly to direction+speed.
 
 Sign convention:
-  pan  error > 0  -> เป้าอยู่ขวาของกลางภาพ -> สั่ง TURRET RIGHT
-  tilt error > 0  -> เป้าอยู่ใต้กลางภาพ (y พิกเซลมากกว่า) -> สั่ง TILT DOWN
-  tilt error < 0  -> เป้าอยู่เหนือกลางภาพ -> ไม่มีคำสั่งเงยขึ้นได้ -> สั่ง STOP (ปล่อยสปริงคืนตัวเอง)
+  pan  error > 0  -> target is right of image center -> command TURRET RIGHT
+  tilt error > 0  -> target is below image center (larger y pixel) -> command TILT DOWN
+  tilt error < 0  -> target is above image center -> no up-tilt command possible -> command STOP (let the return spring work)
 """
 
 from collections import namedtuple
@@ -34,7 +34,7 @@ class PID:
 
 
 def pixel_error_to_degrees(pixel_error: float, frame_dimension_px: int, fov_degrees: float) -> float:
-    """สูตรตาม SPEC.md §2: องศา = (pixel_error / frame_width_px) x horizontal_FOV_degrees"""
+    """Formula per SPEC.md §2: degrees = (pixel_error / frame_width_px) x horizontal_FOV_degrees"""
     return (pixel_error / frame_dimension_px) * fov_degrees
 
 
@@ -45,7 +45,7 @@ class Aimer:
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.horizontal_fov_deg = horizontal_fov_deg
-        # TODO: ยังไม่ calibrate vertical FOV จริง — ประมาณจากสัดส่วนเฟรมคูณ horizontal FOV
+        # TODO: vertical FOV not yet calibrated for real — estimated from frame ratio times horizontal FOV
         self.vertical_fov_deg = vertical_fov_deg or (horizontal_fov_deg * frame_height / frame_width)
         self.max_speed = max_speed
 
@@ -69,7 +69,7 @@ class Aimer:
         return int(round(min(abs(effort), self.max_speed)))
 
     def compute(self, target_x: float, target_y: float, dt: float) -> AimCommand:
-        """คืนค่า AimCommand (ทิศทาง+ความเร็วสั่งมอเตอร์รอบนี้ ตาม protocol_contract.yaml v1.2)"""
+        """Returns an AimCommand (direction+speed motor command for this cycle, per protocol_contract.yaml v1.2)"""
         error_x_px, error_y_px = self.pixel_error(target_x, target_y)
 
         pan_error_deg = pixel_error_to_degrees(error_x_px, self.frame_width, self.horizontal_fov_deg)
@@ -82,7 +82,7 @@ class Aimer:
         pan_direction = "STOP" if pan_speed == 0 else ("RIGHT" if pan_effort > 0 else "LEFT")
 
         if tilt_effort <= 0:
-            # error ทิศขึ้น -> ไม่มีคำสั่งมอเตอร์เงยขึ้นได้ (SPEC.md §2) -> STOP แล้วปล่อยสปริงคืนตัวเอง
+            # error direction is upward -> no up-tilt motor command possible (SPEC.md §2) -> STOP and let the return spring work
             tilt_direction, tilt_speed = "STOP", 0
         else:
             tilt_speed = self._effort_to_speed(tilt_effort)

@@ -1,48 +1,50 @@
 # Hardware — Pin Map
 
-> ยังไม่ได้ต่อสายจริง — pin map และ wiring รอกำหนดตอนประกอบ
+> Not yet wired up for real — pin map and wiring are pending assembly
 
-## สิ่งที่ทราบแล้ว
+## What's known so far
 
-- **อุปกรณ์หลัก:** ESP32-WROOM-32, ESP32-CAM, L298N x2, มอเตอร์ DC ยิง (spring-release, ไม่ใช่เลเซอร์ — ดู `decisions.md`)
-- **ไฟเลี้ยง:** Li-Po 2S ผ่าน DC-DC step-down สำหรับบอร์ด + L298N รับตรงจากแบต
+- **Main hardware:** ESP32-WROOM-32, ESP32-CAM, L298N x2, firing DC motor (spring-release, not a laser — see `decisions.md`)
+- **Power:** Li-Po 2S through a DC-DC step-down for the boards + L298N draws directly from the battery
 
-## ⚠️ ฮาร์ดแวร์จริงที่ค้นพบ (2026-07-01 — ดัดแปลงจากรถบังคับอายุ ~20 ปี)
+## ⚠️ Real hardware discovered (2026-07-01 — converted from a ~20-year-old RC car)
 
-- **Pan** (หมุนซ้าย-ขวา): มอเตอร์ DC ผ่าน L298N#2 channel A — **ไม่มีเซนเซอร์วัดมุม** (ไม่มี potentiometer/encoder)
-- **Tilt** (ก้ม-เงย): มอเตอร์ DC ตัวเดียวผ่าน L298N#2 channel B หมุน cam/worm **ดันโครงปืนลงทางเดียวเท่านั้น** — เงยขึ้นเกิดจาก **สปริงคืนตัวเอง (passive return spring)** ไม่ใช้มอเตอร์ ไม่มีเซนเซอร์วัดมุมเช่นกัน
-- **ตัวยิง (FIRE):** มอเตอร์ DC หมุนทางเดียวปล่อยสปริงยิง — ทดสอบด้วย 9V กับมอเตอร์รถบังคับเดิมแล้วใช้ได้ (ไม่รู้แรงบิดเทียบเท่าของเดิมแค่ไหน)
-- ผลกระทบ: pan/tilt ควบคุมแบบ position สัมบูรณ์ไม่ได้ (ไม่มี feedback) ต้องใช้ทิศทาง+ความเร็ว + กล้องเป็นตัวปิด loop แทน (ดู `SPEC.md §1-2`, `decisions.md`)
+- **Pan** (left-right rotation): DC motor through L298N#2 channel A — **no angle sensor** (no potentiometer/encoder)
+- **Tilt** (up-down): a single DC motor through L298N#2 channel B turns a cam/worm that **only pushes the gun mount down, one direction** — tilting up comes from a **passive return spring**, no motor involved, also no angle sensor
+- **Firing mechanism (FIRE):** a DC motor spins one direction to release the firing spring — tested at 9V with the original RC car's motor, works (unknown how the torque compares to the original)
+- Implication: pan/tilt cannot be controlled with absolute position (no feedback) — must use direction+speed + the camera as the closed loop instead (see `SPEC.md §1-2`, `decisions.md`)
 
-## GPIO ที่ห้ามแตะ (ทุกกรณี)
+## GPIOs never to touch (in any case)
 
-- **GPIO 6–11** — flash chip ภายใน
+- **GPIO 6–11** — internal flash chip
 - **GPIO 0** — boot mode select
-- **GPIO 34–39** — input only (ใช้ output ไม่ได้)
+- **GPIO 34–39** — input only (can't be used as output)
 
-## GPIO Map — ESP32-WROOM-32 (กำหนดแล้ว 2026-07-13, ยังไม่ได้ต่อสายจริง)
+## GPIO Map — ESP32-WROOM-32 (defined 2026-07-13, TRACK right remapped 2026-07-30)
 
-> เลี่ยง: GPIO 0 (boot mode), GPIO 1/3 (UART0 — ใช้กับ Serial), GPIO 2/12/15 (boot strapping pins),
-> GPIO 6–11 (flash ภายใน), GPIO 34–39 (input-only — กันไว้ให้ potentiometer pan/tilt ในอนาคต)
+> Avoid: GPIO 0 (boot mode), GPIO 1/3 (UART0 — used with Serial), GPIO 2/12/15 (boot strapping pins),
+> GPIO 6–11 (internal flash), GPIO 34–39 (input-only — reserved for a future pan/tilt potentiometer)
 
-| ฟังก์ชัน | IN A | IN B | PWM (EN) |
+| Function | IN A | IN B | PWM (EN) |
 |---|---|---|---|
-| TRACK ล้อซ้าย (L298N#1 ch A) | GPIO4 | GPIO5 | GPIO13 |
-| TRACK ล้อขวา (L298N#1 ch B) | GPIO16 | GPIO17 | GPIO18 |
+| TRACK left wheel (L298N#1 ch A) | GPIO4 | GPIO5 | GPIO13 |
+| TRACK right wheel (L298N#1 ch B) | GPIO32 | GPIO33 | GPIO18 |
 | TURRET (L298N#2 ch A) | GPIO19 | GPIO21 | GPIO22 |
-| TILT (L298N#2 ch B, ทิศ DOWN เท่านั้น) | GPIO23 | GPIO25 | GPIO26 |
-| FIRE (MOSFET gate, digital ล้วน ไม่มี PWM) | GPIO27 | — | — |
+| TILT (L298N#2 ch B, DOWN direction only) | GPIO23 | GPIO25 | GPIO26 |
+| FIRE (MOSFET gate, purely digital, no PWM) | GPIO27 | — | — |
 
-**เหตุผลที่ FIRE ไม่ใช้ L298N ตัวที่ 3:** L298N สองตัว (4 channel) พอดีกับ TRACK×2 + TURRET + TILT อยู่แล้ว FIRE เป็นแค่ ON/OFF ทิศเดียว (ไม่ต้องกลับทิศ) ใช้ MOSFET switch 1 GPIO ถูกกว่าและง่ายกว่า driver เต็ม channel
+**Why TRACK right is GPIO32/33 (not 16/17):** many ESP32 DevKit boards do not break out GPIO16/GPIO17 (on classic modules those pins exist but are often unlabeled / missing from the header). GPIO32/33 are almost always available.
 
-สำรองไว้: **GPIO32, GPIO33** — เผื่อ potentiometer pan/tilt ในอนาคต หรือ status LED
+**Why FIRE doesn't use a 3rd L298N:** the two L298Ns (4 channels) already fit TRACK×2 + TURRET + TILT exactly. FIRE is just ON/OFF, one direction (no need to reverse) — a single-GPIO MOSFET switch is cheaper and simpler than a full driver channel.
 
-โค้ดที่ implement ตาม pin map นี้: `firmware/esp32_wroom/src/main.cpp`
+Reserved: **GPIO34, GPIO35** (input-only ADC) — for a future pan/tilt potentiometer. **GPIO14** — spare / status LED.
 
-## รอกำหนดตอนประกอบจริง
+Code implementing this pin map: `firmware/esp32_wroom/src/main.cpp`
 
-- Power wiring และ common ground plan — **สำคัญ:** L298N ต้องกินไฟจากแบตแยก ไม่ใช่ USB (ยังไม่ได้ต่อไฟเสริมตอนนี้)
-- Pin map ของ ESP32-CAM
-- (อนาคต ถ้าต้องการความแม่นยำขึ้น) จุดติดตั้ง potentiometer/encoder วัดมุม pan/tilt — ยังไม่มีของจริง (จะใช้ GPIO32/33 สำรองด้านบน)
+## Still pending real assembly
 
-อัปเดตไฟล์นี้พร้อมแผนผัง wiring ตอนเริ่มต่อสายจริง
+- Power wiring and common ground plan — **important:** the L298N must draw from a separate battery, not USB (no auxiliary power connected yet)
+- ESP32-CAM pin map
+- (future, if more precision is needed) mounting points for a pan/tilt potentiometer/encoder — no real hardware yet (would use the GPIO32/33 reserved above)
+
+Update this file with a wiring diagram once real wiring begins.

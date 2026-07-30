@@ -33,7 +33,7 @@ class TestKalmanTracker2D(unittest.TestCase):
                 tracker.predict(dt)
             fx, fy = tracker.update(noisy_x, noisy_y)
 
-            if i > 10:  # ข้ามช่วง warm-up
+            if i > 10:  # skip the warm-up period
                 errors_raw.append(((noisy_x - true_x) ** 2 + (noisy_y - true_y) ** 2) ** 0.5)
                 errors_filtered.append(((fx - true_x) ** 2 + (fy - true_y) ** 2) ** 0.5)
 

@@ -1,15 +1,15 @@
-"""ตัวสั่งบอร์ด — ประกอบคำสั่งตาม config/protocol_contract.yaml (v1.2, direction+speed) แล้วส่งผ่าน UDP ไป ESP32-WROOM.
+"""Board commander — assembles commands per config/protocol_contract.yaml (v1.2, direction+speed) and sends via UDP to the ESP32-WROOM.
 
-Clamp ที่นี่คือชั้น "PC clamp ก่อนส่ง" ตาม SPEC.md §1 — ESP32 ฝั่งรับต้อง clamp ซ้ำเองอีกชั้น (authoritative)
-เพราะ UDP อาจ corrupt หรือมาจากแหล่งอื่น
+The clamp here is the "PC-side clamp before sending" layer per SPEC.md §1 — the receiving ESP32
+must clamp again itself (authoritative) because UDP may be corrupted or come from another source.
 """
 
 import socket
 
 TRACK_DIRECTIONS = {
     "FORWARD", "BACKWARD", "STOP",
-    "TURN_LEFT", "TURN_RIGHT",  # skid-turn — ข้างหนึ่งหยุด อีกข้างขับ
-    "PIVOT_LEFT", "PIVOT_RIGHT",  # pivot-turn — สองข้างสวนทางกัน (ใช้ตอน aim-assist)
+    "TURN_LEFT", "TURN_RIGHT",  # skid-turn — one side stops, other side drives
+    "PIVOT_LEFT", "PIVOT_RIGHT",  # pivot-turn — both sides opposite directions (used during aim-assist)
 }
 TURRET_DIRECTIONS = {"LEFT", "RIGHT", "STOP"}
 TILT_DIRECTIONS = {"DOWN", "STOP"}
@@ -19,8 +19,8 @@ class CommandSender:
     def __init__(self, host: str, port: int):
         if not host:
             raise ValueError(
-                "CommandSender ต้องการ host ของ ESP32-WROOM — "
-                "config/settings.yaml -> motor_controller.host ยังเป็น null (ยังไม่มีบอร์ดต่อจริง)"
+                "CommandSender requires the ESP32-WROOM host — "
+                "config/settings.yaml -> motor_controller.host is still null (no real board connected yet)"
             )
         self.host = host
         self.port = port
@@ -38,24 +38,24 @@ class CommandSender:
 
     def track(self, direction: str, speed: int):
         if direction not in TRACK_DIRECTIONS:
-            raise ValueError(f"direction ต้องเป็นหนึ่งใน {TRACK_DIRECTIONS}, ได้ {direction!r}")
+            raise ValueError(f"direction must be one of {TRACK_DIRECTIONS}, got {direction!r}")
         speed = self._clamp(int(speed), 0, 255)
         self._send(f"TRACK:{direction}:{speed}")
 
     def turret(self, direction: str, speed: int):
         if direction not in TURRET_DIRECTIONS:
-            raise ValueError(f"direction ต้องเป็นหนึ่งใน {TURRET_DIRECTIONS}, ได้ {direction!r}")
+            raise ValueError(f"direction must be one of {TURRET_DIRECTIONS}, got {direction!r}")
         speed = self._clamp(int(speed), 0, 255)
         self._send(f"TURRET:{direction}:{speed}")
 
     def tilt(self, direction: str, speed: int):
         if direction not in TILT_DIRECTIONS:
-            raise ValueError(f"direction ต้องเป็นหนึ่งใน {TILT_DIRECTIONS}, ได้ {direction!r}")
+            raise ValueError(f"direction must be one of {TILT_DIRECTIONS}, got {direction!r}")
         speed = self._clamp(int(speed), 0, 255)
         self._send(f"TILT:{direction}:{speed}")
 
     def fire(self, state: str, duration_ms: int = 0):
         if state not in ("ON", "OFF"):
-            raise ValueError(f"state ต้องเป็น ON หรือ OFF, ได้ {state!r}")
+            raise ValueError(f"state must be ON or OFF, got {state!r}")
         duration_ms = self._clamp(int(duration_ms), 0, 32767)
         self._send(f"FIRE:{state}:{duration_ms}")

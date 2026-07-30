@@ -1,9 +1,10 @@
-"""ตัวติดตาม — Kalman filter (constant velocity) ทำตำแหน่งเป้าให้นิ่ง + ประมาณความเร็ว
+"""Tracker — Kalman filter (constant velocity) smooths target position + estimates velocity
 
-ตัดสินใจ 2026-07-01: เลือก Kalman แทน centroid ธรรมดา (ปิด TODO ใน SPEC.md §4)
-เหตุผล: centroid เฉยๆ ไม่กรอง noise ของตำแหน่งที่ detector รายงาน และไม่ทำนายทิศทาง
-เป้าที่กำลังเคลื่อนที่ — จำเป็นสำหรับ PID ที่ต้องการ error ที่นิ่งพอจะไม่สั่นป้อมปืน
-(เหตุผลเต็มอยู่ใน overview.md หัวข้อ "ทำไมต้อง Kalman filter")
+Decided 2026-07-01: chose Kalman over plain centroid (closes TODO in SPEC.md §4)
+Reason: plain centroid doesn't filter noise in the position the detector reports, and doesn't
+predict the direction of a moving target — necessary for PID which needs an error signal stable
+enough to not make the turret jitter.
+(Full reasoning in overview.md, section "Why Kalman filter")
 """
 
 import numpy as np
@@ -53,7 +54,7 @@ class KalmanTracker2D:
         return F, Q
 
     def predict(self, dt: float):
-        """เดินทำนายตำแหน่งไปข้างหน้า dt วินาที (เรียกทุกเฟรม แม้เฟรมนั้นไม่มี measurement)."""
+        """Predicts position forward by dt seconds (called every frame, even if that frame has no measurement)."""
         if not self._initialized:
             return None
         F, Q = self._transition_matrices(dt)
@@ -62,7 +63,7 @@ class KalmanTracker2D:
         return self.position
 
     def update(self, x_meas: float, y_meas: float):
-        """ผสาน measurement ใหม่เข้ากับ state — เรียกเมื่อ detector เจอเป้าในเฟรมนี้."""
+        """Merges a new measurement into the state — called when the detector finds a target in this frame."""
         if not self._initialized:
             self.initialize(x_meas, y_meas)
             return self.position

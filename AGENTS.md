@@ -1,106 +1,106 @@
 # Aegis-Tank — AGENTS.md
 
-> AI ทุกตัวอ่านไฟล์นี้ก่อนทำงานเสมอ
+> Every AI always reads this file before starting work
 
-## ⚠️ สถานะโปรเจค
+## ⚠️ Project status
 
-**เริ่มมีโค้ดจริงแล้ว (2026-07-01)** — `firmware/esp32_cam` (กล้อง, flash แล้ว, ทำงานจริง) และ `src/` ฝั่ง PC (6 บทบาททั้งหมดเขียนแล้ว มี unit test) เสร็จ
-**ยังไม่มีโค้ดใน `firmware/esp32_wroom`** (บอร์ดคุมมอเตอร์) — ยังไม่ได้เขียน
-เช็กสถานะละเอียดเสมอที่ `handoff/current-task.md` ก่อนเขียนเพิ่ม/แก้
-
----
-
-## โปรเจคคืออะไร
-
-**Aegis-Tank** — หุ่นยนต์ sentry กึ่งอัตโนมัติ ตรวจจับเป้าด้วย AI บน PC แล้วเล็งยิง (กลไกสปริงยิงด้วยมอเตอร์ DC — ไม่ใช่เลเซอร์ ดู `decisions.md`)
-รื้อใหม่จากโปรเจคเดิม R.N.T. (Rear-Naked Tank) — โครงสร้างเดียวสะอาด โค้ดเขียนใหม่หมด
-หลักการเต็มอ่านได้ที่ `overview/overview.md`
+**Real code now exists (2026-07-01)** — `firmware/esp32_cam` (camera, flashed, working for real) and the PC-side `src/` (all 6 roles written, has unit tests) are done.
+**No code yet in `firmware/esp32_wroom`** (motor controller board) — not written yet.
+Always check the detailed status in `handoff/current-task.md` before writing/changing anything.
 
 ---
 
-## สถาปัตยกรรม — 3 ส่วนหลัก (Split-Brain)
+## What is this project?
+
+**Aegis-Tank** — a semi-autonomous sentry robot that detects a target with AI on a PC, then aims and fires (a spring-release mechanism driven by a DC motor — not a laser, see `decisions.md`)
+Rebuilt from the earlier R.N.T. (Rear-Naked Tank) project — a single clean structure, code rewritten entirely from scratch.
+Full principles are in `overview/overview.md`
+
+---
+
+## Architecture — 3 main parts (Split-Brain)
 
 ```
-[ESP32-CAM]  ตา
-    │  ส่งภาพ video stream ผ่าน WiFi
+[ESP32-CAM]  eyes
+    │  sends a video stream over WiFi
     ↓
-[PC + Python + AI]  สมอง
-    │  ตรวจจับ → ติดตาม → คำนวณ error การเล็ง → ส่งคำสั่ง
+[PC + Python + AI]  brain
+    │  detect → track → compute aiming error → send commands
     ↓
-[ESP32-WROOM]  กล้ามเนื้อ
-    │  รับคำสั่ง → แปลง → ขับมอเตอร์
+[ESP32-WROOM]  muscle
+    │  receive commands → convert → drive motors
     ↓
-[มอเตอร์ / ป้อม / กลไกยิง]
+[Motors / turret / firing mechanism]
 ```
 
-**หลักการหัวใจ:** PC ส่ง "เจตนา" (ทิศทาง/ความเร็ว/ms) ไม่ส่ง PWM ดิบ — ESP32 เป็นคนแปลงเป็น PWM เอง
-> **หมายเหตุ 2026-07-01:** เดิมคิดว่า pan/tilt ส่งเป็นองศาสัมบูรณ์ได้ (สมมติว่าเป็น servo) — ของจริงเป็นมอเตอร์ DC ไม่มีเซนเซอร์วัดมุม จึงส่งทิศทาง+ความเร็วเหมือน track แทน ดู `decisions.md` และ `SPEC.md §2-3`
+**Core principle:** the PC sends "intent" (direction/speed/ms), not raw PWM — the ESP32 converts it to PWM itself
+> **Note, 2026-07-01:** originally assumed pan/tilt could send an absolute angle (assuming servos) — the real hardware is a DC motor with no angle sensor, so it sends direction+speed like TRACK instead. See `decisions.md` and `SPEC.md §2-3`
 
 ---
 
-## บทบาทใน PC — 6 ส่วนเชิงแนวคิด
+## PC-side roles — 6 conceptual parts
 
-> นี่คือ "บทบาท" ไม่ใช่ชื่อไฟล์โค้ด — จะแบ่งไฟล์/โมดูลยังไงตัดสินใจตอนเขียนจริง
+> These are "roles", not code file names — how to split files/modules is decided during actual implementation
 
-| บทบาท | รับผิดชอบอะไร |
+| Role | Responsibility |
 |---|---|
-| ตัวรับภาพ | เชื่อมต่อ stream จากกล้อง ดึงภาพมาทีละเฟรม |
-| ตัวตรวจจับ | เอาภาพเข้า AI หาว่ามีวัตถุเป้าหมายไหม อยู่ตรงไหน |
-| ตัวติดตาม | ทำตำแหน่งให้นิ่ง (Kalman) + คำนวณความเร็วเป้า |
-| ตัวเล็ง | คำนวณ error พิกเซล → แปลงเป็นองศา error → ผ่าน PID → ได้ทิศทาง+ความเร็วสั่งหันรอบนี้ |
-| ตัวสั่งบอร์ด | แปลงทิศทาง/ความเร็ว/คำสั่ง เป็นข้อความส่งไปบอร์ดผ่าน WiFi |
-| ตัวคุมหลัก (orchestrator) | เรียกทุกส่วนข้างบนตามลำดับ วนซ้ำเป็น loop |
+| Frame receiver | Connects to the camera stream, pulls frames one at a time |
+| Detector | Feeds the frame into AI to find whether/where a target object is |
+| Tracker | Smooths the position (Kalman) + estimates target velocity |
+| Aimer | Computes pixel error → converts to degree error → runs through PID → gets direction+speed to command this cycle |
+| Board commander | Converts direction/speed/commands into a message sent to the board over WiFi |
+| Main controller (orchestrator) | Calls every part above in order, looping repeatedly |
 
 ---
 
-## Main Loop (เชิงตรรกะ — ไม่ใช่โค้ดจริง)
+## Main Loop (logical — not real code)
 
 ```
-วนซ้ำ (ความถี่คงที่):
-  1. รับภาพจากกล้อง
-     ถ้าไม่มีภาพ → ข้ามรอบนี้
+Loop repeatedly (at a fixed frequency):
+  1. Receive a frame from the camera
+     If no frame → skip this cycle
 
-  2. ตรวจจับ + ติดตามเป้า
+  2. Detect + track the target
 
-  3. ถ้าเจอเป้า:
-       - คำนวณการเล็ง → สั่งหันป้อม/ก้มเงย
-       - ถ้าเป้าอยู่ขวาเกินไป → หันตัวรถไปขวา
-         ถ้าซ้ายเกินไป → หันซ้าย
-         ถ้าอยู่กลางแล้ว → หยุด
-       - ถ้าเล็งตรงเป้าพอ → ยิง
+  3. If a target is found:
+       - Compute aiming → command turret/tilt
+       - If the target is too far right → turn the vehicle body right
+         If too far left → turn left
+         If already centered → stop
+       - If aimed accurately enough → fire
 
-  4. ถ้าไม่เจอเป้า:
-       - กวาดหาเป้า (หมุนป้อมตาม pattern)
+  4. If no target is found:
+       - Scan for a target (sweep the turret per a pattern)
 
-  5. รอให้ครบรอบ → วนใหม่
+  5. Wait for the cycle to complete → loop again
 ```
 
-Loop ต้องเดินด้วย **ความถี่คงที่ (dt คงที่)** เพื่อให้ Kalman/PID คำนวณถูก
+The loop must run at a **fixed frequency (fixed dt)** so Kalman/PID compute correctly
 
 ---
 
-## โฟลเดอร์ที่ใช้งาน
+## Active folders
 
-| โฟลเดอร์ | ใส่อะไร |
+| Folder | Contains |
 |---|---|
-| `src/` | โค้ด Python ฝั่ง PC — 6 บทบาทเขียนครบแล้ว (`vision/`, `logic/`, `actuators/`, `utils/`, `main.py`) |
-| `firmware/` | `esp32_cam/` เขียน+flash แล้ว · `esp32_wroom/` **ยังไม่มี** |
-| `overview/` | `overview.md` — อธิบายโปรเจคสำหรับคนที่เพิ่งเข้ามา |
-| `hardware/` | เอกสารฮาร์ดแวร์ (pin map ยังไม่ได้กำหนด) |
-| `models/` | YOLOv8 weights (*.pt) — ไม่ commit ไฟล์ใหญ่ (`yolov8n.pt` โหลดอัตโนมัติแล้ว) |
-| `data/` | วิดีโอทดสอบ, dataset — ไม่ commit ไฟล์ใหญ่ |
-| `config/` | `protocol_contract.yaml` (format คำสั่ง) + `settings.yaml` (ค่าจริง/tunable) — มีแล้วทั้งคู่ |
-| `tests/` | unit test |
-| `scripts/` | tool ช่วย (flash, convert, deploy) |
-| `web/` | ระบบควบคุมบังคับมือ / monitoring ผ่าน browser |
-| `handoff/` | `current-task.md` — สถานะงานส่งต่อระหว่าง session |
+| `src/` | PC-side Python code — all 6 roles fully written (`vision/`, `logic/`, `actuators/`, `utils/`, `main.py`) |
+| `firmware/` | `esp32_cam/` written+flashed · `esp32_wroom/` **not yet written** |
+| `overview/` | `overview.md` — explains the project for newcomers |
+| `hardware/` | hardware docs (pin map not yet defined) |
+| `models/` | YOLOv8 weights (*.pt) — large files not committed (`yolov8n.pt` downloads automatically) |
+| `data/` | test videos, dataset — large files not committed |
+| `config/` | `protocol_contract.yaml` (command format) + `settings.yaml` (real/tunable values) — both already exist |
+| `tests/` | unit tests |
+| `scripts/` | helper tools (flash, convert, deploy) |
+| `web/` | manual override control / monitoring system via browser |
+| `handoff/` | `current-task.md` — work status handed off between sessions |
 
 ---
 
-## กฎสำหรับ AI
+## Rules for AI
 
-- อ่าน `SPEC.md` ก่อนแก้ interface หรือ command format
-- อัปเดต `handoff/current-task.md` เมื่อจบ session
-- ถ้าจะเพิ่มโฟลเดอร์ใหม่ — เพิ่มคำอธิบายในตารางนี้ด้วย
-- **ห้ามเขียนราวกับโค้ดมีอยู่แล้ว** — ดูสถานะจริงที่ `handoff/current-task.md` ก่อนเสมอ
-- ดูข้อตัดสินใจที่ปิดแล้วใน `SPEC.md` อย่าย้อนเถียงโดยไม่มีเหตุผลใหม่
+- Read `SPEC.md` before changing any interface or command format
+- Update `handoff/current-task.md` at the end of a session
+- If adding a new folder — add a description to this table too
+- **Never write as if code already exists** — always check the real status in `handoff/current-task.md` first
+- See closed decisions in `SPEC.md` — don't relitigate them without a new reason

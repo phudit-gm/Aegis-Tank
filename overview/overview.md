@@ -1,94 +1,94 @@
-# Aegis-Tank — ภาพรวมโปรเจค
+# Aegis-Tank — Project Overview
 
-> เอกสารนี้เล่าให้คนที่เพิ่งเข้ามาในโปรเจครู้ว่า Aegis-Tank คืออะไร ทำไมถึงออกแบบแบบนี้
-> สถานะ (2026-07-14): **มีโค้ดจริงแล้ว** — `src/` ฝั่ง PC เขียนครบ 6 บทบาท มี unit test ผ่านหมด, `firmware/esp32_cam` เขียน+flash แล้วทำงานจริง (MJPEG stream), `firmware/esp32_wroom` มีโค้ดขับ PWM/GPIO จริงแล้ว compile ผ่าน รอ flash ทดสอบกับมอเตอร์จริง — สถานะละเอียดล่าสุดดูที่ `handoff/current-task.md`
-
----
-
-## Aegis-Tank คืออะไร
-
-หุ่นยนต์ sentry กึ่งอัตโนมัติ ที่ "เห็น → คิด → เล็ง → ขยับ" โดยแยกหน้าที่ออกเป็น 3 สมองคนละตัว:
-- **เห็น** ด้วยกล้อง (ESP32-CAM)
-- **คิด** ด้วย AI บน PC (ตรวจจับวัตถุ + คำนวณการเล็ง)
-- **ขยับ** ด้วยบอร์ดคุมมอเตอร์ (ESP32-WROOM)
-
-รื้อใหม่จากโปรเจคเดิม **R.N.T. (Rear-Naked Tank)** ที่โครงสร้างกระจัดกระจาย — โปรเจคนี้คือเวอร์ชันจัดระเบียบใหม่ที่เก็บเฉพาะความรู้ที่ตกผลึกแล้ว โค้ดเขียนใหม่หมด
+> This document tells someone new to the project what Aegis-Tank is and why it's designed this way
+> Status (2026-07-14): **real code now exists** — the PC-side `src/` has all 6 roles written with all unit tests passing, `firmware/esp32_cam` is written+flashed and working for real (MJPEG stream), `firmware/esp32_wroom` has real PWM/GPIO driving code that compiles, awaiting flash testing with real motors — see `handoff/current-task.md` for the latest detailed status
 
 ---
 
-## แนวคิด Split-Brain
+## What is Aegis-Tank
 
-หัวใจของ Aegis-Tank คือการ **แยกตัวประมวลผล AI (หนัก) ออกจากตัวคุมมอเตอร์ (เบา, real-time)** เพื่อให้ทั้งสองทำงานไปพร้อมกันโดยไม่แย่งทรัพยากรกัน:
+A semi-autonomous sentry robot that "sees → thinks → aims → moves", splitting the work across 3 separate brains:
+- **Sees** with a camera (ESP32-CAM)
+- **Thinks** with AI on a PC (detects objects + computes aiming)
+- **Moves** with a motor controller board (ESP32-WROOM)
 
-| สมอง | อุปกรณ์ | ลักษณะงาน |
+Rebuilt from the earlier **R.N.T. (Rear-Naked Tank)** project, whose structure was scattered — this project is the reorganized version that keeps only the knowledge that has crystallized, with all code rewritten from scratch.
+
+---
+
+## The Split-Brain concept
+
+The heart of Aegis-Tank is **separating the (heavy) AI processing from the (light, real-time) motor controller** so both can run at once without competing for resources:
+
+| Brain | Device | Nature of work |
 |---|---|---|
-| ตา | ESP32-CAM | stream ภาพต่อเนื่อง |
-| สมองคิด | PC + Python + AI | หนัก, ต้องการ GPU/CPU สูง |
-| กล้ามเนื้อ | ESP32-WROOM | เบา, ต้องตอบสนองเร็ว (real-time) |
+| Eyes | ESP32-CAM | continuous video stream |
+| Thinking brain | PC + Python + AI | heavy, needs high GPU/CPU |
+| Muscle | ESP32-WROOM | light, must respond fast (real-time) |
 
-ถ้าใช้บอร์ดเดียวทำทั้งหมด: AI กินทรัพยากรจนมอเตอร์ตอบสนองช้า หรือมอเตอร์แย่ง CPU ทำให้ AI ทำงานกระตุก
+If one board did everything: the AI would eat resources until the motors respond slowly, or the motors would compete for CPU and make the AI stutter.
 
 ---
 
-## การไหลของระบบ (CAM → PC → WROOM → มอเตอร์)
+## System data flow (CAM → PC → WROOM → motors)
 
 ```
-[ESP32-CAM]  เห็น
-    │  ส่งภาพวิดีโอผ่าน WiFi
+[ESP32-CAM]  sees
+    │  sends a video image over WiFi
     ↓
-[PC + AI]  คิด
-    │  - ตรวจจับวัตถุในภาพ
-    │  - ทำให้ตำแหน่งนิ่ง (ลด noise)
-    │  - คำนวณว่าต้องหันไปทางไหนเท่าไหร่
-    │  ส่งคำสั่งผ่าน WiFi
+[PC + AI]  thinks
+    │  - detects objects in the image
+    │  - smooths the position (reduces noise)
+    │  - computes how far and which way to turn
+    │  sends commands over WiFi
     ↓
-[ESP32-WROOM]  ขยับ
-    │  แปลคำสั่ง → สัญญาณคุมมอเตอร์
+[ESP32-WROOM]  moves
+    │  translates commands → motor control signals
     ↓
-[มอเตอร์]  ขยับจริง (ล้อ / ป้อมปืน / ก้มเงย / ยิง)
+[Motors]  move for real (wheels / turret / tilt / fire)
 ```
 
-ทิศทางข้อมูลเป็น **วงเดียว (one-way loop):**
-ภาพไหลขึ้น PC → คำสั่งไหลลงบอร์ด → มอเตอร์ขยับ → กล้องเห็นผลลัพธ์ใหม่ → วนใหม่
+Data flows in **one loop (one-way loop):**
+image flows up to the PC → commands flow down to the board → motors move → the camera sees the new result → loop again
 
 ---
 
-## ขั้นตอนการ "คิด" ใน PC
+## The "thinking" steps on the PC
 
-นี่คือหัวใจของระบบ — ลำดับการแปลงข้อมูลจากภาพดิบจนเป็นคำสั่งมอเตอร์:
+This is the heart of the system — the sequence that converts raw image data into motor commands:
 
 ```
-ภาพ 1 เฟรม
-   ↓ ตรวจจับวัตถุ
-เจอวัตถุ: รู้ตำแหน่ง (x, y) + ความมั่นใจ + ชนิด
-   ↓ ทำให้นิ่ง (Kalman filter)
-ตำแหน่งที่นิ่งขึ้น + ความเร็วการเคลื่อนที่
-   ↓ คำนวณ error (เป้าอยู่ห่างจากกลางภาพเท่าไหร่)
-error เป็นพิกเซล
-   ↓ แปลงพิกเซล → องศา error
-   ↓ ผ่านตัวคุม (PID) ให้ขยับนุ่มนวล ไม่สั่น ไม่เลยเป้า
-ทิศทาง+ความเร็วที่ต้องสั่งรอบนี้ (pan / tilt)
-   ↓ สร้างเป็นคำสั่ง
-ส่งคำสั่งไปบอร์ด → มอเตอร์ขยับ → กล้องเห็นผลลัพธ์เฟรมถัดไป → วนแก้ error ต่อ (visual servoing, ไม่มีเซนเซอร์วัดมุมในบอร์ด)
+1 frame of image
+   ↓ detect objects
+Object found: position (x, y) + confidence + class known
+   ↓ smooth (Kalman filter)
+Smoothed position + velocity of motion
+   ↓ compute error (how far the target is from image center)
+error in pixels
+   ↓ convert pixels → degree error
+   ↓ run through a controller (PID) to move smoothly, without jitter, without overshoot
+direction+speed to command this cycle (pan / tilt)
+   ↓ build into a command
+send command to the board → motors move → camera sees the next frame's result → loop to correct the error further (visual servoing, no angle sensor on the board)
 ```
 
 ---
 
-## ทำไมต้อง Kalman filter
+## Why a Kalman filter
 
-ภาพจากกล้องตรวจจับได้ตำแหน่งที่ "เด้งไปเด้งมา" (noise) ถ้าสั่งมอเตอร์ตามตรงๆ ป้อมจะสั่น Kalman แก้ 2 อย่าง:
+The position detected from the camera image "jitters back and forth" (noise). Commanding the motors directly off that would make the turret shake. Kalman fixes 2 things:
 
-1. **กรอง noise** — ได้ตำแหน่งที่ smooth ขึ้น เหมือนวาดเส้นเฉลี่ยผ่านจุดที่กระจัดกระจาย
-2. **ทำนายทิศทาง** — คำนวณความเร็วการเคลื่อนที่ เพื่อเดาตำแหน่งถัดไปก่อนเฟรมถัดมาจะมาถึง (ช่วยตามเป้าที่กำลังวิ่ง)
+1. **Filters noise** — gives a smoother position, like drawing an average line through scattered points
+2. **Predicts direction** — computes the velocity of motion, to guess the next position before the next frame arrives (helps track a moving target)
 
 ---
 
-## ทำไมต้อง PID
+## Why PID
 
-ถ้าสั่งมอเตอร์ให้วิ่งไปเป้าตรงๆ มันจะ "เลยเป้า" (overshoot) แล้วแกว่งกลับไปกลับมาไม่หยุด PID แก้ปัญหานี้:
+If the motors were commanded to drive straight at the target, it would "overshoot" and oscillate back and forth without stopping. PID fixes this:
 
-- **P (Proportional):** ไกลเป้าขยับเร็ว ใกล้เป้าขยับช้าลง — สัดส่วนตรงกับระยะห่าง
-- **I (Integral):** แก้ความเบี่ยงเบนสะสมระยะยาว ป้องกันเล็งค้างข้างๆ เป้าตลอด
-- **D (Derivative):** หน่วงการเข้าเป้า ป้องกันสั่นรอบจุดหมาย
+- **P (Proportional):** move fast when far from the target, slow down when close — proportional directly to the distance
+- **I (Integral):** corrects long-term accumulated deviation, prevents staying aimed off to one side of the target forever
+- **D (Derivative):** dampens the approach to the target, prevents oscillation around the destination
 
-ผลลัพธ์: ป้อมปืนเข้าเป้าแบบนุ่มนวล ไม่สั่น ไม่เลย
+Result: the turret settles onto the target smoothly, without jitter, without overshoot.

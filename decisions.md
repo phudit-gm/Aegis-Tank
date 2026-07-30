@@ -1,80 +1,80 @@
 # Aegis-Tank — Decisions
 
-เหตุผลและ trade-off ของการตัดสินใจออกแบบที่ปิดแล้ว
-ผลของการตัดสินใจ (สั้นๆ) อยู่ที่ `SPEC.md §3`
+Reasoning and trade-offs behind closed design decisions.
+The (brief) outcome of each decision lives in `SPEC.md §3`
 
 ---
 
-> [!decision] ~~ส่งองศา ไม่ส่ง PWM~~ — **แก้ไข 2026-07-01 ดูข้อถัดไป** (สมมติฐานเดิมผิด: คิดว่า pan/tilt เป็น servo)
-> **ตัดสินใจเดิม:** PC ส่งมุมหน่วยองศา (pan/tilt) ผ่านเครือข่าย — ไม่ส่งค่า PWM ดิบ
-> **เหตุผลเดิม:** ค่า PWM ผูกกับ servo/มอเตอร์จริงและ gear ratio ซึ่งเป็นรายละเอียดฮาร์ดแวร์ — เปลี่ยนอุปกรณ์แก้แค่ firmware ESP32 ฝั่งเดียว ไม่ต้องแตะโค้ด PC
-> **Trade-off ที่ยอมรับตอนนั้น:** ESP32 ต้องรับภาระแปลง angle→PWM เพิ่ม แต่ได้ความแยกส่วน (separation of concerns) ที่ชัดกว่า — PC ไม่รู้รายละเอียดฮาร์ดแวร์เลย
-> **ทำไมต้องแก้:** ตอนตัดสินใจนี้สมมติว่า pan/tilt เป็น servo (มี feedback ในตัวเอง) — ของจริงเป็นมอเตอร์ DC เปล่าไม่มี potentiometer/encoder เลย ส่ง "ไปมุม X" ตรงๆไม่ได้ ดูข้อตัดสินใจใหม่ด้านล่าง
-> **วันที่:** 2026-06-26 (แก้ไข 2026-07-01)
+> [!decision] ~~Send degrees, not PWM~~ — **revised 2026-07-01, see next item** (the original assumption was wrong: assumed pan/tilt were servos)
+> **Original decision:** the PC sends angles in degrees (pan/tilt) over the network — no raw PWM values
+> **Original reasoning:** PWM values are tied to the real servo/motor and gear ratio, which are hardware details — swapping hardware only requires changing the ESP32 firmware, not the PC code
+> **Trade-off accepted at the time:** the ESP32 takes on the extra burden of converting angle→PWM, but gets a clearer separation of concerns — the PC knows nothing about hardware details
+> **Why it had to change:** this decision assumed pan/tilt were servos (with their own built-in feedback) — the real hardware is a plain DC motor with no potentiometer/encoder at all, so sending "go to angle X" directly isn't possible. See the new decision below
+> **Date:** 2026-06-26 (revised 2026-07-01)
 
 ---
 
-> [!decision] Pan/Tilt ส่งทิศทาง+ความเร็วทุกรอบ loop (visual servoing) แทนองศาสัมบูรณ์
-> **ตัดสินใจ:** ยกเลิก `TURRET:PAN:angle` / `TILT:PITCH:angle` แบบองศาสัมบูรณ์ เปลี่ยนเป็น `TURRET:direction:speed` / `TILT:direction:speed` เหมือนรูปแบบของ `TRACK` — ESP32 ไม่ต้องรู้ตำแหน่งองศาจริงของป้อมเลย
-> **เหตุผล:** ฮาร์ดแวร์จริง (รถบังคับอายุ 20 ปีที่ดัดแปลง) ไม่มีเซนเซอร์วัดมุมเลย — pan ขับด้วยมอเตอร์ DC ผ่าน L298N#2 (หมุนได้ 2 ทิศทาง), tilt ขับด้วยมอเตอร์ DC ตัวเดียวดัน cam/worm ลงทิศทางเดียวเท่านั้น ส่วนเงยขึ้นเกิดจากสปริงคืนตัวเองแบบ passive (ไม่มีมอเตอร์ดันขึ้น) — ไม่มีทางคำนวณ/สั่ง "ไปมุม X องศา" ให้แม่นได้เลยถ้าไม่มีเซนเซอร์
-> **วิธีแก้:** ใช้กล้อง (ที่รันอยู่แล้วทุกรอบ ~20Hz) เป็นตัว feedback แทน potentiometer — คำนวณ pixel error ทุกเฟรม ผ่าน PID ได้ effort แล้วแปลงเป็นทิศทาง+ความเร็วสั้นๆ ส่งไปแต่ละรอบ เฟรมถัดไปกล้องเห็นผลลัพธ์ใหม่แล้วแก้ error ต่อเอง (closed-loop ทาง vision แทน closed-loop ทาง encoder)
-> **ข้อจำกัดเฉพาะ tilt:** ทิศ "เงยขึ้น" ไม่มีคำสั่งมอเตอร์ที่ actuate ได้จริง — ทำได้แค่ "หยุดดันลง" แล้วรอสปริงดึงขึ้นเอง ซึ่งช้ากว่าและควบคุมไม่ได้แม่นเท่าทิศก้มลง (allowed enum ของ TILT direction จึงมีแค่ `DOWN`/`STOP` ไม่มี `UP`)
-> **Trade-off ที่ยอมรับ:** ความแม่นยำต่ำกว่า closed-loop ตำแหน่งจริงแบบ servo — แต่ไม่ต้องมอดโครงสร้างฮาร์ดแวร์ครั้งใหญ่ (โครงรถเดิมไม่ได้ออกแบบมารับ servo mount) เพียงพอสำหรับงาน sentry-turret ที่ไม่ต้องการความแม่นยำระดับ lab — เพิ่ม potentiometer ทีหลังได้ถ้าจำเป็นจริงๆ
-> **วันที่:** 2026-07-01
+> [!decision] Pan/Tilt send direction+speed every loop cycle (visual servoing) instead of an absolute angle
+> **Decision:** drop the absolute-angle `TURRET:PAN:angle` / `TILT:PITCH:angle` format, change to `TURRET:direction:speed` / `TILT:direction:speed` matching the `TRACK` format — the ESP32 never needs to know the turret's real angular position
+> **Reasoning:** the real hardware (a converted ~20-year-old RC car) has no angle sensor at all — pan is driven by a DC motor through L298N#2 (can spin both directions), tilt is driven by a single DC motor pushing a cam/worm down in one direction only, with tilting up coming from a passive return spring (no motor pushes it up) — there is no way to compute/command "go to angle X degrees" accurately without a sensor
+> **Solution:** use the camera (already running every cycle at ~20Hz) as the feedback source instead of a potentiometer — compute pixel error every frame, run it through PID to get an effort, convert that to a short direction+speed command sent each cycle, and the next frame the camera sees the new result and corrects the error further (closed-loop via vision instead of closed-loop via encoder)
+> **Tilt-specific limitation:** the "tilt up" direction has no motor command that can actually actuate it — the only option is "stop pushing down" and wait for the spring to pull it back up, which is slower and less precisely controlled than the down direction (so the allowed TILT direction enum is only `DOWN`/`STOP`, no `UP`)
+> **Trade-off accepted:** lower precision than true closed-loop servo positioning — but avoids a major hardware structural mod (the existing vehicle frame wasn't designed for a servo mount), which is sufficient for a sentry-turret task that doesn't need lab-grade precision — a potentiometer can be added later if truly needed
+> **Date:** 2026-07-01
 
 ---
 
-> [!decision] `TRACK` แยก skid-turn กับ pivot-turn (`PIVOT_LEFT`/`PIVOT_RIGHT` ใหม่)
-> **ตัดสินใจ:** เพิ่ม `PIVOT_LEFT`/`PIVOT_RIGHT` ใน protocol v1.3 — ล้อสองข้างหมุนสวนทางกันด้วยความเร็วเท่ากัน (แนะนำ) ต่างจาก `TURN_LEFT`/`TURN_RIGHT` เดิมที่กลายมาเป็น skid-turn อย่างเป็นทางการ (ข้างหนึ่งหยุด อีกข้างขับ)
-> **เหตุผล:** ตอนแรกไม่มีการแยกโหมด `_steer_body` (aim-assist ตอนหันตัวช่วยป้อม) ใช้ `TURN_LEFT/TURN_RIGHT` เฉยๆ — เจ้าของโปรเจคอยากได้ skid-turn สำหรับเคลื่อนที่ทั่วไป แต่ pivot-turn สำหรับสถานการณ์แคบ/ตอนตั้งป้อม (aim-assist) เพราะแม่นกว่าและไม่พารถเลื่อนตำแหน่งออกจากจุดเล็ง
-> **วิธีใช้:** `_steer_body` (`src/main.py`) เรียก `PIVOT_LEFT/PIVOT_RIGHT` เสมอเพราะเป็น caller เดียวตอนนี้ (aim-assist) — `TURN_LEFT/TURN_RIGHT` (skid) เก็บไว้ให้โค้ด manual drive/web control ในอนาคตที่ยังไม่ implement
-> **Trade-off ที่ยอมรับ:** เพิ่ม enum ใน protocol (ต้องอัปเดตทั้ง PC/ESP32 พร้อมกัน) แลกกับความแม่นยำตอนเล็ง — pivot ไม่ทำให้ตำแหน่งรถเปลี่ยนมากเท่า skid-turn
-> **วันที่:** 2026-07-13
+> [!decision] `TRACK` separates skid-turn from pivot-turn (new `PIVOT_LEFT`/`PIVOT_RIGHT`)
+> **Decision:** added `PIVOT_LEFT`/`PIVOT_RIGHT` in protocol v1.3 — both wheels spin opposite directions at equal speed (recommended), distinct from the existing `TURN_LEFT`/`TURN_RIGHT` which officially became skid-turn (one side stops, the other drives)
+> **Reasoning:** originally there was no mode separation — `_steer_body` (aim-assist, turning the body to help the turret) just used plain `TURN_LEFT/TURN_RIGHT` — the project owner wanted skid-turn for general movement, but pivot-turn for tight situations/while aiming (aim-assist), since it's more precise and doesn't drag the vehicle position away from the aim point
+> **Usage:** `_steer_body` (`src/main.py`) always calls `PIVOT_LEFT/PIVOT_RIGHT` since it's the only caller right now (aim-assist) — `TURN_LEFT/TURN_RIGHT` (skid) is kept for future manual-drive/web-control code that isn't implemented yet
+> **Trade-off accepted:** an extra enum in the protocol (both PC/ESP32 must be updated together) in exchange for aiming precision — pivot doesn't shift the vehicle position as much as skid-turn
+> **Date:** 2026-07-13
 
 ---
 
-> [!decision] FIRE ขับผ่าน MOSFET switch 1 GPIO ไม่ใช่ L298N channel ที่ 3
-> **ตัดสินใจ:** ใช้ MOSFET module 1 ตัวขับมอเตอร์กลไกยิง ผ่าน GPIO เดียว (digital ON/OFF) แทนการหา driver บอร์ดที่ 3
-> **เหตุผล:** L298N สองตัวมี 4 channel พอดีกับ TRACK ซ้าย/ขวา + TURRET + TILT อยู่แล้ว ไม่เหลือ channel ให้ FIRE — แต่ FIRE เป็นมอเตอร์หมุนทิศเดียว (ไม่ต้องกลับทาง) ไม่จำเป็นต้องใช้ H-bridge เต็มรูปแบบ MOSFET switch ธรรมดาถูกกว่าและเดินสายง่ายกว่า
-> **Trade-off ที่ยอมรับ:** ไม่มี PWM ควบคุมแรง (ตาม protocol เดิมที่เป็น ON/OFF+duration_ms อยู่แล้ว ไม่ใช่ speed) — ถ้าต้องการคุมแรงยิงแบบแปรผันในอนาคตต้องเปลี่ยน driver ใหม่
-> **วันที่:** 2026-07-13
+> [!decision] FIRE is driven through a single-GPIO MOSFET switch, not a 3rd L298N channel
+> **Decision:** use one MOSFET module to drive the firing mechanism's motor through a single GPIO (digital ON/OFF) instead of sourcing a 3rd board driver
+> **Reasoning:** the two L298Ns have 4 channels which already exactly fit TRACK left/right + TURRET + TILT — there's no channel left for FIRE — but FIRE is a one-direction motor (no need to reverse), so a full H-bridge isn't necessary; a plain MOSFET switch is cheaper and easier to wire
+> **Trade-off accepted:** no PWM force control (per the existing protocol which is already ON/OFF+duration_ms, not speed) — if variable firing force is wanted in the future, a different driver would be needed
+> **Date:** 2026-07-13
 
 ---
 
-> [!decision] เปลี่ยนชื่อคำสั่ง `LASER` เป็น `FIRE`
-> **ตัดสินใจ:** เปลี่ยนชื่อ command type จาก `LASER` เป็น `FIRE` — format/field เดิมคงเดิม (`FIRE:state:duration_ms`)
-> **เหตุผล:** ชื่อเดิมมาจากสมมติฐานผิดตอนออกแบบครั้งแรก (คิดว่ามีเลเซอร์ diode สำหรับชี้เป้า) ของจริงที่มีตอนนี้คือกลไกยิงเชิงกล — มอเตอร์ DC หมุนทางเดียวปล่อยสปริงยิง (ทดสอบด้วย 9V กับมอเตอร์รถบังคับเดิมแล้วใช้ได้)
-> **หมายเหตุ:** ไอเดียเซนเซอร์เลเซอร์วัดระยะ (laser rangefinder) เป็นแค่ความคิดสำหรับอนาคต ยังไม่มีของจริงและยังไม่ implement — ถ้าทำจริงในอนาคตจะเป็นคนละ command กับ `FIRE` (เป็น input sensor ส่งข้อมูลระยะกลับ ไม่ใช่ output actuator)
-> **วันที่:** 2026-07-01
+> [!decision] Renamed the `LASER` command to `FIRE`
+> **Decision:** renamed the command type from `LASER` to `FIRE` — the format/fields stay the same (`FIRE:state:duration_ms`)
+> **Reasoning:** the original name came from a wrong assumption during the initial design (thought there'd be a laser diode for pointing at the target) — what actually exists now is a mechanical firing mechanism: a DC motor spins one direction to release the firing spring (tested at 9V with the original RC car's motor, works)
+> **Note:** the laser rangefinder sensor idea is just a future concept, no real hardware yet and not implemented — if built for real in the future it would be a separate command from `FIRE` (an input sensor reporting distance data back, not an output actuator)
+> **Date:** 2026-07-01
 
 ---
 
-> [!decision] ใช้ ESP32 แทน Raspberry Pi
-> **ตัดสินใจ:** ใช้ ESP32-WROOM เป็นตัวคุมมอเตอร์ ไม่ใช้ Raspberry Pi
-> **เหตุผล:** boot < 1s, กินไฟต่ำ, ทำ real-time control ได้ดี, ราคาถูกกว่ามาก — งาน AI หนักโยนไปที่ PC ทำให้ ESP32 ไม่ต้องแบกรับ
-> **Trade-off ที่ยอมรับ:** ประมวลผลบน ESP32 จำกัด — ถ้าต้องการ logic ซับซ้อนขึ้นต้องเพิ่มที่ PC แล้วส่งคำสั่งเพิ่ม ไม่สามารถรัน logic ซับซ้อนบนบอร์ดได้เอง
-> **วันที่:** 2026-06-26
+> [!decision] Use ESP32 instead of Raspberry Pi
+> **Decision:** use ESP32-WROOM as the motor controller, not a Raspberry Pi
+> **Reasoning:** boot < 1s, low power draw, does real-time control well, much cheaper — the heavy AI work is offloaded to the PC so the ESP32 doesn't have to carry it
+> **Trade-off accepted:** limited processing on the ESP32 — more complex logic has to be added on the PC side and sent as additional commands; it can't run complex logic on the board itself
+> **Date:** 2026-06-26
 
 ---
 
-> [!decision] UDP ทางเดียว + fail-safe timeout
-> **ตัดสินใจ:** ใช้ UDP (ทางเดียว ไม่มี handshake) แทน TCP สำหรับส่งคำสั่ง PC→ESP32 พร้อม fail-safe timeout บน ESP32
-> **เหตุผล:** latency ต่ำกว่า TCP เหมาะกับ command stream ที่ PC ส่งซ้ำบ่อยๆ ต่อวินาที — packet ที่หายไปจะถูกแทนที่ด้วย packet ถัดไปในรอบหน้าอยู่แล้ว
-> **Trade-off ที่ยอมรับ:** UDP ไม่การันตีว่าส่งถึง — ยอมรับ packet loss โดยชดเชยด้วย fail-safe timeout: ถ้า ESP32 ไม่ได้รับคำสั่งนานเกินกำหนด จะกลับ safe state เองอัตโนมัติ
-> **วันที่:** 2026-06-26
+> [!decision] One-way UDP + fail-safe timeout
+> **Decision:** use UDP (one-way, no handshake) instead of TCP for sending PC→ESP32 commands, with a fail-safe timeout on the ESP32
+> **Reasoning:** lower latency than TCP, well-suited to a command stream the PC re-sends frequently every second — a lost packet is simply replaced by the next one on the following cycle anyway
+> **Trade-off accepted:** UDP doesn't guarantee delivery — packet loss is accepted and compensated for with a fail-safe timeout: if the ESP32 doesn't receive a command for longer than the set duration, it automatically returns to safe state
+> **Date:** 2026-06-26
 
 ---
 
-> [!decision] ESP32-CAM ต่อ home WiFi แบบ client (ไม่ทำ AP เอง)
-> **ตัดสินใจ:** ใช้ home WiFi ที่มีอยู่แล้ว (client mode, DHCP) แทนให้ ESP32-CAM ตั้งเป็น AP เอง (`RNT_TANK` ตาม R.N.T. เดิม)
-> **เหตุผล:** ของเดิมมีอยู่แล้ว ไม่ต้องแก้ firmware/ต่อ WiFi ใหม่ทุกครั้งที่ทดสอบ, ทดสอบสะดวกกว่าเพราะ PC กับบอร์ดอยู่บนเน็ตเวิร์กเดียวกับที่ใช้งานปกติ
-> **Trade-off ที่ยอมรับ:** IP เป็น DHCP-assigned ไม่ fix — ถ้า router แจก IP ใหม่ต้องอัปเดต `config/settings.yaml` เอง (ยังไม่ได้ตั้ง DHCP reservation หรือ static IP ใน firmware)
-> **วันที่:** 2026-07-01
+> [!decision] ESP32-CAM connects to home WiFi as a client (no self-hosted AP)
+> **Decision:** use the existing home WiFi (client mode, DHCP) instead of having the ESP32-CAM host its own AP (as the earlier R.N.T. project did)
+> **Reasoning:** the existing network is already there, so there's no need to change firmware/reconnect to a new WiFi every time it's tested; testing is more convenient since the PC and boards are on the same network used for everyday use
+> **Trade-off accepted:** the IP is DHCP-assigned, not fixed — if the router hands out a new IP, `config/settings.yaml` must be updated manually (no DHCP reservation or static IP set in firmware yet)
+> **Date:** 2026-07-01
 
 ---
 
-> [!decision] เลือก Kalman filter เป็นอัลกอริทึม tracking (ปิด TODO ใน SPEC.md §4)
-> **ตัดสินใจ:** ใช้ Kalman filter (constant-velocity model) แทน centroid ธรรมดา สำหรับตัวติดตาม
-> **เหตุผล:** overview.md อธิบายเหตุผลไว้ตั้งแต่แรก (กรอง noise + ทำนายความเร็วเป้า) — centroid ธรรมดาไม่ทำสองอย่างนี้ และ PID ต้องการ error สัญญาณที่นิ่งพอจะไม่สั่นป้อมปืน
-> **Trade-off ที่ยอมรับ:** โค้ดซับซ้อนกว่า centroid เล็กน้อย (state 4 มิติ, matrix inverse ทุก update) แต่ยังเบามากเทียบกับงาน AI detection ที่หนักกว่าเยอะ ไม่กระทบ real-time
-> **วันที่:** 2026-07-01
+> [!decision] Chose Kalman filter as the tracking algorithm (closes the TODO in SPEC.md §4)
+> **Decision:** use a Kalman filter (constant-velocity model) instead of plain centroid for the tracker
+> **Reasoning:** overview.md explains the reasoning from the start (filters noise + predicts target velocity) — plain centroid does neither, and PID needs an error signal stable enough to not make the turret jitter
+> **Trade-off accepted:** slightly more complex code than centroid (4D state, matrix inverse on every update) but still very lightweight compared to the much heavier AI detection work — doesn't impact real-time performance
+> **Date:** 2026-07-01

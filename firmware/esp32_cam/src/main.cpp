@@ -149,8 +149,8 @@ void setup() {
     config.pin_pclk     = PCLK_GPIO_NUM;
     config.pin_vsync    = VSYNC_GPIO_NUM;
     config.pin_href     = HREF_GPIO_NUM;
-    config.pin_sscb_sda = SIOD_GPIO_NUM;
-    config.pin_sscb_scl = SIOC_GPIO_NUM;
+    config.pin_sccb_sda = SIOD_GPIO_NUM;
+    config.pin_sccb_scl = SIOC_GPIO_NUM;
     config.pin_pwdn     = PWDN_GPIO_NUM;
     config.pin_reset    = RESET_GPIO_NUM;
     config.xclk_freq_hz = 24000000;   // 24MHz — proven good for >35fps
@@ -163,14 +163,14 @@ void setup() {
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
         Serial.printf("Camera init failed: 0x%x\n", err);
-        Serial.println("→ ลองรีเสต ribbon cable OV2640 แล้ว upload ใหม่");
+        Serial.println("-> Try reseating the OV2640 ribbon cable, then re-upload");
         return;
     }
 
     // ── Exposure / gain tuning ────────────────────────────────────────────────
     sensor_t* s = esp_camera_sensor_get();
-    s->set_exposure_ctrl(s, 0);     // manual exposure (ต้อง set ก่อน aec_value)
-    s->set_aec_value(s, 250);       // 180=เร็ว/มืด · 250=สว่างห้องปกติ · 350=มืด
+    s->set_exposure_ctrl(s, 0);     // manual exposure (must be set before aec_value)
+    s->set_aec_value(s, 250);       // 180=fast/dark · 250=bright/normal room · 350=dark
     s->set_gain_ctrl(s, 1);         // auto gain
     s->set_gainceiling(s, GAINCEILING_32X);
     s->set_brightness(s, 1);

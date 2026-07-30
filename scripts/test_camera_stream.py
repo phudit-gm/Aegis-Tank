@@ -1,7 +1,7 @@
-"""Manual smoke test — เช็คว่า FrameReceiver ต่อกล้องจริงติดและถอดเฟรมได้
+"""Manual smoke test — checks that FrameReceiver can actually connect to the camera and decode frames
 
-ใช้: python scripts/test_camera_stream.py
-ต้องมี ESP32-CAM เปิดอยู่บนเครือข่ายเดียวกันตาม config/settings.yaml (camera.stream_url)
+Use: python scripts/test_camera_stream.py
+Requires an ESP32-CAM powered on, on the same network, per config/settings.yaml (camera.stream_url)
 """
 
 import sys

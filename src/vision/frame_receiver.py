@@ -1,4 +1,4 @@
-"""ตัวรับภาพ — เชื่อมต่อ MJPEG stream จาก ESP32-CAM แล้วดึงเฟรมออกมาทีละภาพ (BGR numpy array)."""
+"""Frame receiver — connects to the MJPEG stream from the ESP32-CAM and pulls out frames one at a time (BGR numpy array)."""
 
 import cv2
 import numpy as np
@@ -26,9 +26,9 @@ class FrameReceiver:
             self._resp = None
 
     def frames(self):
-        """Generator ที่ yield เฟรม BGR (numpy array) ไปเรื่อยๆ จนกว่า stream จะขาด.
+        """Generator that yields BGR frames (numpy array) continuously until the stream drops.
 
-        Reconnect ไม่ได้ทำในนี้ — ผู้เรียก (main loop) เป็นคนตัดสินใจว่าจะ retry ยังไงตอน stream ขาด.
+        Reconnection is not handled here — the caller (main loop) decides how to retry when the stream drops.
         """
         if self._resp is None:
             self.connect()

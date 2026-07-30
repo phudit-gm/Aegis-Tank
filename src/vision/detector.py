@@ -1,7 +1,7 @@
-"""ตัวตรวจจับ — รับเฟรม ส่งเข้า YOLOv8 หาว่ามีวัตถุเป้าหมายไหม อยู่ตรงไหน
+"""Detector — receives a frame, feeds it into YOLOv8 to find whether/where a target object is
 
-TARGET_CLASS / CONF_THRESHOLD ยังเป็นค่า TODO ตาม SPEC.md §4 — ตั้งค่า default ไว้ทดสอบ pipeline เท่านั้น
-เปลี่ยนค่าจริงได้ที่ config/settings.yaml -> detection (ไม่ต้องแก้โค้ดนี้)
+TARGET_CLASS / CONF_THRESHOLD are still TODO per SPEC.md §4 — default values are set just to test
+the pipeline. Change the real values at config/settings.yaml -> detection (no need to edit this code).
 """
 
 from ultralytics import YOLO
@@ -23,7 +23,7 @@ class Detector:
         self.class_names = self.model.names  # dict {id: name}
 
     def detect(self, frame) -> Detection | None:
-        """คืน Detection ของเป้าที่ confidence สูงสุดที่ตรง target_class หรือ None ถ้าไม่เจอ"""
+        """Returns the Detection with highest confidence matching target_class, or None if not found"""
         results = self.model.predict(frame, verbose=False, conf=self.conf_threshold)
         best = None
 

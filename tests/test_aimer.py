@@ -17,7 +17,7 @@ class TestPixelErrorToDegrees(unittest.TestCase):
 
 class TestPID(unittest.TestCase):
     def test_converges_on_simple_feedback_loop(self):
-        # ระบบจำลอง: position += pid_output ทุก step, error = setpoint - position
+        # Simulated system: position += pid_output every step, error = setpoint - position
         pid = PID(kp=0.5, ki=0.1, kd=0.05)
         setpoint = 10.0
         position = 0.0
@@ -63,7 +63,7 @@ class TestAimer(unittest.TestCase):
         self.assertGreater(aim.tilt_speed, 0)
 
     def test_target_above_center_cannot_tilt_up_so_stops(self):
-        # ไม่มีคำสั่งมอเตอร์เงยขึ้นได้ (SPEC.md §2) -> ต้อง STOP ไม่ใช่ค่าติดลบ/UP
+        # No up-tilt motor command possible (SPEC.md §2) -> must be STOP, not a negative value/UP
         aimer = self._make_aimer()
         aim = aimer.compute(160, 40, dt=0.05)
         self.assertEqual(aim.tilt_direction, "STOP")

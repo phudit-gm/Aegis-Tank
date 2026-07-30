@@ -12,7 +12,7 @@ from src.main import Orchestrator
 def make_settings(motor_host, motor_port):
     return {
         "camera": {
-            "stream_url": "http://127.0.0.1:1/stream",  # ไม่เชื่อมต่อจริงในเทสต์นี้ (FrameReceiver ต่อแบบ lazy)
+            "stream_url": "http://127.0.0.1:1/stream",  # not actually connected in this test (FrameReceiver connects lazily)
             "frame_width": 320,
             "frame_height": 240,
             "horizontal_fov_deg": 60.0,
@@ -57,7 +57,7 @@ class TestOrchestrator(unittest.TestCase):
         return msgs
 
     def test_target_at_center_stops_body_and_holds_fire(self):
-        detection = SimpleNamespace(x=160, y=120)  # ตรงกลางเฟรม 320x240
+        detection = SimpleNamespace(x=160, y=120)  # exact center of a 320x240 frame
         self.orchestrator._on_target_found(detection, dt=0.05)
         msgs = self._recv_all(4)  # turret, tilt, track, fire
         self.assertTrue(any(m.startswith("TURRET:STOP:") for m in msgs))
@@ -66,7 +66,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertTrue(any(m.startswith("FIRE:ON:") for m in msgs))
 
     def test_target_off_target_holds_fire_off(self):
-        detection = SimpleNamespace(x=280, y=120)  # ไกลกลางเกิน tolerance
+        detection = SimpleNamespace(x=280, y=120)  # far from center beyond tolerance
         self.orchestrator._on_target_found(detection, dt=0.05)
         msgs = self._recv_all(4)
         self.assertTrue(any(m.startswith("FIRE:OFF:") for m in msgs))
@@ -79,7 +79,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertTrue(any(m.startswith("TILT:STOP:") for m in msgs))
 
     def test_steer_body_pivots_when_off_center(self):
-        # aim-assist ใช้ pivot-turn ไม่ใช่ skid-turn (decisions.md 2026-07-13)
+        # aim-assist uses pivot-turn, not skid-turn (decisions.md 2026-07-13)
         self.orchestrator._steer_body(60)
         self.assertEqual(self._recv_all(1)[0], "TRACK:PIVOT_RIGHT:120")
 
