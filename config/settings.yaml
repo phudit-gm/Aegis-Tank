@@ -41,6 +41,8 @@ control:
   # TODO: all values here are rough starting estimates, need real tuning once real tracks+turret hardware exists
   body_turn_threshold_deg: 45   # pan beyond this many degrees -> turn the whole vehicle body instead of just the turret (AGENTS.md main loop item 3)
   body_turn_speed: 120          # 0-255 per the TRACK protocol
+  curve_inner_ratio: 0.2        # Q/E MIX: inner = cruise * this. Lower = tighter turn (0.5 barely yawed on tracks)
+  track_pwm_deadband: 60        # measured wheels-up 2026-08-27 — not applied to Q/E (that floor made 120 cruise into 60:120)
   scan_sweep_limit_deg: 60      # virtual angle (estimated, no real sensor) used to time the sweep direction switch
   scan_step_deg_per_sec: 30     # virtual angle accumulation rate per second, only used for timing, not a real position
   scan_speed: 120               # turret motor speed while scanning for a target (0-255 per the TURRET protocol)

@@ -32,6 +32,14 @@ class TestCommandSender(unittest.TestCase):
         self.sender.track("PIVOT_LEFT", 150)
         self.assertEqual(self._recv(), "TRACK:PIVOT_LEFT:150")
 
+    def test_track_mix(self):
+        self.sender.track_mix(300, -400)
+        self.assertEqual(self._recv(), "TRACK:MIX:255:-255")
+
+    def test_track_mix_not_via_track(self):
+        with self.assertRaises(ValueError):
+            self.sender.track("MIX", 100)
+
     def test_turret(self):
         self.sender.turret("LEFT", 300)  # exceeds range, must be clamped to 255
         self.assertEqual(self._recv(), "TURRET:LEFT:255")

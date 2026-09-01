@@ -13,9 +13,10 @@ The PC sends commands to the ESP32-WROOM board over WiFi as a message in the for
 TYPE:FIELD2:FIELD3
 ```
 
-- **Always 3 parts** separated by `:` — the parser needs no special cases, leaving room to add a new axis in the future
+- **Default: 3 parts** separated by `:` — TURRET / TILT / FIRE and all TRACK directions except `MIX`
+- **Exception (v1.4):** `TRACK:MIX:left:right` is 4 parts (signed PWM per wheel, -255..255)
 - encoded as UTF-8 bytes
-- ESP32 parses by splitting on `:` → checks it got 3 tokens → looks at TYPE to dispatch → checks the value range
+- ESP32 parses by splitting on `:` → checks token count (3, or 4 when TRACK MIX) → looks at TYPE to dispatch → checks the value range
 
 ### Planned command types (TYPE)
 
@@ -23,7 +24,7 @@ TYPE:FIELD2:FIELD3
 
 | TYPE | FIELD2 | FIELD3 | Meaning |
 |---|---|---|---|
-| `TRACK` | direction (`FORWARD`/`BACKWARD`/`STOP`/`TURN_LEFT`/`TURN_RIGHT`/`PIVOT_LEFT`/`PIVOT_RIGHT`) | speed 0-255 | Commands the tracked wheels to move — `TURN_*` = skid-turn (one side stops), `PIVOT_*` = both sides spin opposite directions (used during aim-assist) |
+| `TRACK` | direction (`FORWARD`/`BACKWARD`/`STOP`/`TURN_LEFT`/`TURN_RIGHT`/`PIVOT_LEFT`/`PIVOT_RIGHT`) or `MIX` | speed 0-255, or when `MIX`: two signed PWM fields `left:right` each -255..255 | Commands the tracked wheels — `TURN_*` = skid-turn (one side stops), `PIVOT_*` = both sides opposite (aim-assist), `MIX` = independent left/right PWM (`TRACK:MIX:120:60`) |
 | `TURRET` | direction (`LEFT`/`RIGHT`/`STOP`) | speed 0-255 | Rotates the turret left/right (DC motor via L298N#2 — no angle feedback) |
 | `TILT` | direction (`DOWN`/`STOP` only — **no `UP`**) | speed 0-255 | Pushes the barrel down (single DC motor pushing one direction only) — tilting up comes from the return spring, no motor command |
 | `FIRE` | `ON`/`OFF` | duration in ms | Commands the firing mechanism (a DC motor spins one direction to release the firing spring — **not a laser**) |
@@ -71,7 +72,7 @@ degree error = (pixel_error / frame_width_px) × horizontal_FOV_degrees
 
 1. ~~Send degrees, not PWM~~ — **revised 2026-07-01, see item 9** (the original assumption was wrong: assumed pan/tilt were servos)
 2. **The ESP32 converts commands → PWM** (the PC doesn't know the real PWM value — still true, just that the PC now sends direction+speed instead of degrees)
-3. **Commands are always 3 parts** — the parser needs no special cases
+3. **Commands are 3 parts except `TRACK:MIX:left:right` (v1.4, 4 parts)** — other TRACK directions stay 3 parts so `_steer_body` and `speed_limits.py` do not change
 4. **Two-layer clamp, ESP32 authoritative**
 5. **Use ESP32 instead of Raspberry Pi**
 6. **UDP (one-way) + fail-safe timeout**
@@ -82,6 +83,7 @@ degree error = (pixel_error / frame_width_px) × horizontal_FOV_degrees
 11. **`TRACK` separates skid-turn (`TURN_LEFT`/`TURN_RIGHT`) from pivot-turn (`PIVOT_LEFT`/`PIVOT_RIGHT`)** — the PC uses pivot during aim-assist (`_steer_body`), skid is kept for general movement in the future (see `decisions.md`)
 12. **FIRE is driven through a single-GPIO MOSFET switch**, not a 3rd L298N channel — the two L298Ns (4 channels) already fit TRACK×2/TURRET/TILT exactly; FIRE is ON/OFF, one direction only, no need to reverse (see `hardware/pin_map.md`, `decisions.md`)
 13. **ESP32-WROOM pin map is defined** (see `hardware/pin_map.md`) — not yet wired up for real
+14. **`TRACK:MIX:left:right` (protocol v1.4)** — independent signed PWM per track; hardware already had separate L298N channels. Aim-assist still uses `PIVOT_*`. Manual curve in `drive_console.py` uses MIX (see `decisions.md`)
 
 ---
 

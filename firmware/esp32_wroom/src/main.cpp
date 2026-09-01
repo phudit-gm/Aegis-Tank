@@ -4,6 +4,7 @@
 #include <ArduinoOTA.h>
 #include "esp_ota_ops.h"
 #include "secrets.h"
+#include <stdlib.h>
 
 // ── UDP (per config/protocol_contract.yaml -> motor_controller) ─────────────
 constexpr uint16_t UDP_PORT = 5555;
@@ -108,14 +109,27 @@ void handleTrack(const char* direction, long speed) {
     Serial.printf("[TRACK] %s speed=%ld\n", direction, speed);
 }
 
+// v1.4 — independent tracks. sign = direction, magnitude = PWM, 0 = coast that side
+void handleTrackMix(long left, long right) {
+    left = clampl(left, -255, 255);
+    right = clampl(right, -255, 255);
+    uint8_t ls = (uint8_t)labs(left);
+    uint8_t rs = (uint8_t)labs(right);
+    driveChannel(TRACK_L_IN_A, TRACK_L_IN_B, TRACK_L_PWM_CH, left >= 0, ls);
+    driveChannel(TRACK_R_IN_A, TRACK_R_IN_B, TRACK_R_PWM_CH, right >= 0, rs);
+    Serial.printf("[TRACK] MIX left=%ld right=%ld\n", left, right);
+}
+
 void handleTurret(const char* direction, long speed) {
     speed = clampl(speed, 0, 255);
     uint8_t s = (uint8_t)speed;
 
+    // Polarity inverted 2026-08-28: pan motor leads cannot be swapped on the robot
+    // (same as swapping L298N OUT1/OUT2). Physical IN1=GPIO19 / IN2=GPIO21 unchanged.
     if (strcmp(direction, "LEFT") == 0) {
-        driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, false, s);
-    } else if (strcmp(direction, "RIGHT") == 0) {
         driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, true, s);
+    } else if (strcmp(direction, "RIGHT") == 0) {
+        driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, false, s);
     } else if (strcmp(direction, "STOP") == 0) {
         driveChannel(TURRET_IN_A, TURRET_IN_B, TURRET_PWM_CH, true, 0);
     } else {
@@ -164,7 +178,7 @@ void dispatch(char* msg) {
         return;
     }
 
-    // Split into 3 parts by ':' per SPEC.md §1 — parser doesn't need special cases
+    // Split by ':' — most commands are 3 tokens; TRACK MIX is 4 (SPEC.md §1 v1.4)
     char* type = strtok(msg, ":");
     char* field2 = strtok(nullptr, ":");
     char* field3 = strtok(nullptr, ":");
@@ -175,7 +189,16 @@ void dispatch(char* msg) {
     }
 
     if (strcmp(type, "TRACK") == 0) {
-        handleTrack(field2, atol(field3));
+        if (strcmp(field2, "MIX") == 0) {
+            char* field4 = strtok(nullptr, ":");
+            if (!field4) {
+                Serial.println("[DROP] TRACK MIX needs TRACK:MIX:left:right");
+                return;
+            }
+            handleTrackMix(atol(field3), atol(field4));
+        } else {
+            handleTrack(field2, atol(field3));
+        }
     } else if (strcmp(type, "TURRET") == 0) {
         handleTurret(field2, atol(field3));
     } else if (strcmp(type, "TILT") == 0) {

@@ -33,6 +33,15 @@ The (brief) outcome of each decision lives in `SPEC.md §3`
 
 ---
 
+> [!decision] `TRACK:MIX` sends independent left/right PWM (protocol v1.4)
+> **Decision:** add a 4-token command `TRACK:MIX:<left>:<right>` with signed integers -255..255 per wheel (positive=forward, negative=reverse, 0=coast). Existing 3-token TRACK directions stay valid.
+> **Reasoning:** the L298N already drives left and right on separate GPIO; the old packet only had one speed, so a curve (inner wheel slower) was impossible without pretending skid (one wheel at 0). MIX is additive so `_steer_body` can keep using `PIVOT_*` and deadband tests can keep using `TURN_*`.
+> **Usage:** `drive_console.py` Q/E send MIX curves; A/D send pivot. `CommandSender.track_mix()`, not `track("MIX", ...)`.
+> **Trade-off accepted:** the TRACK parser now has one special case (4 tokens) instead of a strictly uniform 3-token grammar.
+> **Date:** 2026-08-28
+
+---
+
 > [!decision] FIRE is driven through a single-GPIO MOSFET switch, not a 3rd L298N channel
 > **Decision:** use one MOSFET module to drive the firing mechanism's motor through a single GPIO (digital ON/OFF) instead of sourcing a 3rd board driver
 > **Reasoning:** the two L298Ns have 4 channels which already exactly fit TRACK left/right + TURRET + TILT — there's no channel left for FIRE — but FIRE is a one-direction motor (no need to reverse), so a full H-bridge isn't necessary; a plain MOSFET switch is cheaper and easier to wire

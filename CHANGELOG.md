@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Changed
+- Pointed Sightglass (`C:\sightglass\sightglass.config.json`) at this repo: sketch root Aegis-Tank, default sketch `firmware/esp32_wroom`, env `esp32wroom`.
+
+### Changed
+- TURRET LEFT/RIGHT motor polarity inverted in firmware (`handleTurret`) — pan leads cannot be swapped on the robot. Re-flash WROOM.
+
+### Added
+- `tests/hardware/turret_console.py` — pan-only UDP console (`TURRET:LEFT/RIGHT/STOP`). L298N#2 channel A wiring in `hardware/pin_map.md`.
+
+### Added
+- Protocol v1.4: `TRACK:MIX:left:right` (signed PWM per wheel, -255..255). Firmware `handleTrackMix`, `CommandSender.track_mix()`, drive console Q/E curves / A/D pivot / M=max. `_steer_body` still uses `PIVOT_*`.
+
+### Changed
 - TRACK right wheel IN pins remapped **GPIO16/17 → GPIO32/33** (PWM stays GPIO18) — many DevKit boards do not break out 16/17; updated `firmware/esp32_wroom/src/main.cpp`, `hardware/pin_map.md`, `diagram.json`
 
 ### Added

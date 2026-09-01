@@ -47,3 +47,5 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+firmware/**/try_COM*.log
+firmware/**/try_COM*.err

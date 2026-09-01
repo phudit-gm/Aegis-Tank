@@ -1,4 +1,4 @@
-"""Board commander — assembles commands per config/protocol_contract.yaml (v1.2, direction+speed) and sends via UDP to the ESP32-WROOM.
+"""Board commander — assembles commands per config/protocol_contract.yaml (v1.4) and sends via UDP to the ESP32-WROOM.
 
 The clamp here is the "PC-side clamp before sending" layer per SPEC.md §1 — the receiving ESP32
 must clamp again itself (authoritative) because UDP may be corrupted or come from another source.
@@ -41,6 +41,12 @@ class CommandSender:
             raise ValueError(f"direction must be one of {TRACK_DIRECTIONS}, got {direction!r}")
         speed = self._clamp(int(speed), 0, 255)
         self._send(f"TRACK:{direction}:{speed}")
+
+    def track_mix(self, left: int, right: int):
+        """Independent per-wheel PWM (protocol v1.4). Not a three-token TRACK direction."""
+        left = self._clamp(int(left), -255, 255)
+        right = self._clamp(int(right), -255, 255)
+        self._send(f"TRACK:MIX:{left}:{right}")
 
     def turret(self, direction: str, speed: int):
         if direction not in TURRET_DIRECTIONS:

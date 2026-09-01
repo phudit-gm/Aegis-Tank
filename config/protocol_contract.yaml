@@ -7,14 +7,15 @@
 # Whenever the protocol changes → always bump version + last_updated to track drift
 # ==============================================================================
 
-version: "1.3"
+version: "1.4"
 date_created: "2026-06-25"
-last_updated: "2026-07-13"
+last_updated: "2026-08-28"
 note: |
   Rebuilt from the R.N.T. project — the old v1.0 contract (2026-06-11) was carried over wholesale
   v1.1: changed network topology to home WiFi
   v1.2: TURRET/TILT changed from absolute angle to direction+speed (real hardware has no angle sensor) · LASER renamed to FIRE (the real mechanism is a spring-release, not a laser) — see decisions.md
   v1.3: TRACK adds PIVOT_LEFT/PIVOT_RIGHT (both wheels spin opposite directions) separate from the old TURN_LEFT/TURN_RIGHT which became skid-turn (one side stops, other side drives) — see decisions.md
+  v1.4: TRACK adds MIX (per-wheel signed PWM) as a 4-token packet TRACK:MIX:left:right — 3-token TRACK directions unchanged — see decisions.md
   ✅ 2026-07-13: src/ and firmware/esp32_wroom fully updated to match v1.2 (aimer.py, command_sender.py, main.py, main.cpp) — all unit tests pass
   ✅ 2026-07-13: pin map defined (`hardware/pin_map.md`), firmware has real PWM/GPIO driving code (not yet flashed to / wired up on real hardware)
 
@@ -38,31 +39,38 @@ network:
 
 commands:
   format_overview: |
-    Every command has the form: TYPE:FIELD2:FIELD3
+    Most commands have the form: TYPE:FIELD2:FIELD3
     - Part 1 (TYPE):   command kind [TRACK | TURRET | TILT | FIRE]
     - Part 2 (FIELD2): first parameter (direction, ON/OFF)
     - Part 3 (FIELD3): value (speed, duration)
     - Separated by ':' (colon) · Encoding UTF-8 bytes
+    Exception (v1.4): TRACK MIX uses four tokens TRACK:MIX:left:right (signed PWM per wheel).
+    All other TRACK directions stay three tokens. TURRET/TILT/FIRE stay three tokens.
     v1.2: TURRET/TILT no longer send an absolute angle — the real hardware (pan/tilt) is a plain DC motor
     with no potentiometer/encoder to measure angle, so commanding "go to angle X" directly isn't possible. Sends
     direction+speed the same way as TRACK instead, and relies on the camera (feedback every frame, ~20Hz) to close the loop instead of an on-board sensor (visual servoing)
 
   TRACK:
-    format: "TRACK:direction:speed"
+    format: "TRACK:direction:speed  OR  TRACK:MIX:left:right"
     field2:
       name: direction
       type: "string (enum)"
-      allowed: ["FORWARD", "BACKWARD", "STOP", "TURN_LEFT", "TURN_RIGHT", "PIVOT_LEFT", "PIVOT_RIGHT"]
+      allowed: ["FORWARD", "BACKWARD", "STOP", "TURN_LEFT", "TURN_RIGHT", "PIVOT_LEFT", "PIVOT_RIGHT", "MIX"]
       note: |
         TURN_LEFT/TURN_RIGHT = skid-turn (one wheel stops, the other drives at speed) — used for general movement
         PIVOT_LEFT/PIVOT_RIGHT = pivot-turn (both wheels spin opposite directions at equal speed) — used when turning the body to help aim (aim-assist)
         Added in v1.3 (2026-07-13) — see decisions.md
+        MIX (v1.4) = independent left/right PWM. Packet is TRACK:MIX:left:right (four tokens).
+        left/right are signed integers: positive=forward, negative=reverse, 0=coast that side.
+        Do not send MIX through the three-token TRACK:direction:speed form.
     field3:
-      name: speed
+      name: speed  (or left PWM when field2 is MIX)
       type: integer
       range: [0, 255]
       unit: "power level (0=stop, 255=max) — ESP32 converts this to PWM for L298N#1"
+      mix_note: "When direction is MIX, field3 is signed left PWM [-255, 255] and a fourth token is signed right PWM [-255, 255]"
     example: "TRACK:FORWARD:200"
+    example_mix: "TRACK:MIX:120:60"
 
   TURRET:
     format: "TURRET:direction:speed"
@@ -114,6 +122,7 @@ constraints:
     python_side: |
       Python clamps before sending:
       - TRACK speed:   max(0, min(255, value))
+      - TRACK MIX left/right: max(-255, min(255, value)) each
       - TURRET speed:  max(0, min(255, value))
       - TILT speed:    max(0, min(255, value))
       - FIRE duration: max(0, min(32767, value))
@@ -124,10 +133,10 @@ constraints:
   parsing:
     esp32: |
       1. split the message by ':'
-      2. check the token count (must be 3)
-      3. look at token[0] (TYPE) to dispatch
-      4. check token[2] (FIELD3) against its range
-      5. wrong format/out of range -> log + drop the command
+      2. check the token count (3 for all commands except TRACK MIX, which needs 4)
+      3. look at token[0] (TYPE) to dispatch; if TRACK and token[1] is MIX, require token[3]
+      4. check numeric fields against their range (re-clamp)
+      5. wrong format -> log + drop the command (do not apply motors)
 
 network_reliability:
   note: "UDP does not guarantee delivery — a fail-safe is required"

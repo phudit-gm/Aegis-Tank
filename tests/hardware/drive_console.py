@@ -27,14 +27,14 @@ from src.utils.config import load_settings
 SPEED_STEP = 10
 FAILSAFE_PROBE_SEC = 1.5
 
-# key -> TRACK direction per config/protocol_contract.yaml (v1.3)
-KEY_DIRECTIONS = {
+# latch modes — CURVE_* send TRACK:MIX (v1.4); others are 3-token TRACK
+KEY_MODES = {
     "w": "FORWARD",
     "s": "BACKWARD",
-    "a": "TURN_LEFT",    # skid — left track stops, right track drives
-    "d": "TURN_RIGHT",
-    "q": "PIVOT_LEFT",   # pivot — tracks spin opposite directions
-    "e": "PIVOT_RIGHT",
+    "a": "PIVOT_LEFT",
+    "d": "PIVOT_RIGHT",
+    "q": "CURVE_LEFT",
+    "e": "CURVE_RIGHT",
     " ": "STOP",
 }
 
@@ -43,9 +43,10 @@ HELP = """
 == Aegis-Tank drive console -- TRACK only ==
 
   W / S    FORWARD / BACKWARD
-  A / D    TURN_LEFT / TURN_RIGHT   (skid, one track stops)
-  Q / E    PIVOT_LEFT / PIVOT_RIGHT (both tracks, opposite directions)
-  + / -    speed +-{step} (0-255)
+  A / D    PIVOT_LEFT / PIVOT_RIGHT (in place, tracks opposite)
+  Q / E    curve left / curve right (MIX: inner wheel slower, both forward)
+  +        speed +{step} (0-255)
+  M        speed = 255
   SPACE    STOP
   F        fail-safe probe: stop transmitting for {probe}s WITHOUT sending STOP
            -> the board must stop itself, look for [SAFE STATE] in the serial log
@@ -53,7 +54,13 @@ HELP = """
 
 NOTE: keys latch. A direction keeps being re-sent until you press another
 direction or SPACE. Letting go of the key does NOT stop the tank.
+Needs firmware v1.4 (TRACK MIX) flashed — old boards DROP Q/E packets.
 """
+
+
+def curve_inner(speed: int, ratio: float) -> int:
+    """Inner-wheel PWM for a forward curve. No deadband floor — that collapsed 120 cruise to 60:120."""
+    return max(0, min(255, int(speed * ratio)))
 
 
 def read_key():
@@ -75,6 +82,8 @@ def read_key():
 def main():
     settings = load_settings()
     motor = settings["motor_controller"]
+    ctrl = settings["control"]
+    ratio = float(ctrl.get("curve_inner_ratio", 0.2))
 
     parser = argparse.ArgumentParser(description="Manual TRACK drive console for the ESP32-WROOM")
     # settings.yaml still holds an RFC 5737 placeholder — the board's real DHCP IP comes from its boot log
@@ -82,7 +91,7 @@ def main():
     parser.add_argument("--port", type=int, default=motor["port"], help="UDP port (default: settings.yaml)")
     parser.add_argument("--rate", type=float, default=motor["send_rate_hz"],
                         help="resend rate in Hz — must stay above the 500ms fail-safe")
-    parser.add_argument("--speed", type=int, default=settings["control"]["body_turn_speed"],
+    parser.add_argument("--speed", type=int, default=ctrl["body_turn_speed"],
                         help="initial speed 0-255")
     args = parser.parse_args()
 
@@ -92,13 +101,13 @@ def main():
     sender = CommandSender(args.host, args.port)
     period = 1.0 / args.rate
 
-    direction = "STOP"
+    mode = "STOP"
     speed = max(0, min(255, args.speed))
     sent = 0
     quiet_until = 0.0  # fail-safe probe: hold off transmitting until this time
 
     print(HELP.format(step=SPEED_STEP, probe=FAILSAFE_PROBE_SEC))
-    print(f"Target: {args.host}:{args.port} @ {args.rate:g}Hz")
+    print(f"Target: {args.host}:{args.port} @ {args.rate:g}Hz  curve_inner_ratio={ratio}")
     if args.host.startswith("192.0.2."):
         # UDP never reports an unreachable host, so this would silently do nothing all session
         print("WARNING: that is the RFC 5737 placeholder from settings.yaml, not a real board.\n"
@@ -112,12 +121,12 @@ def main():
 
             if key == "\x1b":  # ESC
                 break
-            elif key in KEY_DIRECTIONS:
-                direction = KEY_DIRECTIONS[key]
+            elif key in KEY_MODES:
+                mode = KEY_MODES[key]
             elif key in ("+", "="):
                 speed = min(255, speed + SPEED_STEP)
-            elif key in ("-", "_"):
-                speed = max(0, speed - SPEED_STEP)
+            elif key == "m":
+                speed = 255
             elif key == "f":
                 quiet_until = tick + FAILSAFE_PROBE_SEC
 
@@ -125,9 +134,17 @@ def main():
                 remaining = quiet_until - tick
                 status = f"[FAILSAFE PROBE] silent for {remaining:4.1f}s more, board should self-stop"
             else:
-                sender.track(direction, speed)
+                inner = curve_inner(speed, ratio)
+                if mode == "CURVE_LEFT":
+                    sender.track_mix(inner, speed)
+                    status = f"TRACK:MIX:{inner}:{speed}"
+                elif mode == "CURVE_RIGHT":
+                    sender.track_mix(speed, inner)
+                    status = f"TRACK:MIX:{speed}:{inner}"
+                else:
+                    sender.track(mode, speed)
+                    status = f"TRACK:{mode}:{speed}"
                 sent += 1
-                status = f"TRACK:{direction}:{speed}"
 
             print(f"\r{status:<70} sent={sent}", end="", flush=True)
 
