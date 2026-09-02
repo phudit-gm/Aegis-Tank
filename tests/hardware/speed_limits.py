@@ -3,7 +3,7 @@
 The board has no wheel sensor and the bench PSU is not on the network, so this script holds
 a command over UDP and asks you to look at the tracks / PSU. It does not change settings.yaml.
 
-Use: python tests/hardware/speed_limits.py --host 192.168.1.129
+Use: python tests/hardware/speed_limits.py --host <board-ip>
 
 Stage 2 only (blocks). Do not run this on the ground.
 Windows-friendly (same CommandSender path as drive_console.py). No extra dependencies.

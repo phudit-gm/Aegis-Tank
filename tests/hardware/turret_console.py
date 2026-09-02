@@ -3,7 +3,7 @@
 Pan-only road test for L298N#2 channel A (one DC motor). No TRACK, TILT, or FIRE.
 If the turret misbehaves here it is firmware, wiring or the motor — not the vision stack.
 
-Use: python tests/hardware/turret_console.py --host 192.168.1.137
+Use: python tests/hardware/turret_console.py --host <board-ip>
 
 Wiring: hardware/pin_map.md (pan-only). Leave TILT pins (GPIO23/25/26) disconnected.
 

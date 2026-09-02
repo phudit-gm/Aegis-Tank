@@ -10,7 +10,7 @@ Guided walkthrough for characterization items 1–2. Holds `TRACK:` over UDP whi
 tracks and the PSU; it cannot see motion or read the supply. Does not write `settings.yaml`.
 
 ```
-python tests/hardware/speed_limits.py --host 192.168.1.129
+python tests/hardware/speed_limits.py --host <board-ip>
 ```
 
 `--start` defaults to `control.body_turn_speed` (120). If a track is already dead at that PWM, rerun
@@ -24,7 +24,7 @@ already an average, not a true peak-hold.
 Sends `TURRET:` only. Wire L298N#2 channel A per `hardware/pin_map.md` (pan-only). Do not connect tilt or FIRE.
 
 ```
-python tests/hardware/turret_console.py --host 192.168.1.137
+python tests/hardware/turret_console.py --host <board-ip>
 ```
 
 | Key | Action |
@@ -45,7 +45,7 @@ motor-polarity problem cannot be confused with a detection problem. TURRET, TILT
 deliberately not implemented here.
 
 ```
-python tests/hardware/drive_console.py --host 192.168.1.42
+python tests/hardware/drive_console.py --host <board-ip>
 ```
 
 | Key | Action |

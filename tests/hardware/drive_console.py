@@ -3,7 +3,7 @@
 Standalone road test for the drive base: no camera, no YOLO, no tracker, no PID. If the tank
 misbehaves here it is the firmware, the wiring or the motors — not the vision stack.
 
-Use: python tests/hardware/drive_console.py --host 192.168.1.42
+Use: python tests/hardware/drive_console.py --host <board-ip>
 
 The firmware fail-safe stops all motors 500ms after the last command
 (firmware/esp32_wroom/src/main.cpp FAILSAFE_TIMEOUT_MS), so this re-sends the current command

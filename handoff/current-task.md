@@ -5,8 +5,8 @@
 - TRACK left/right wired to L298N#1 per `hardware/pin_map.md`
 - Firmware flashed to ESP32-WROOM on **COM5** (`pio run -e esp32wroom -t upload`) — first flash needed hold BOOT + tap RST (`Wrong boot mode 0x13`); retry succeeded
 - Boot log: WiFi connected, UDP `:5555`, `Ready -- driving real PWM/GPIO outputs`
-- Last observed DHCP IP: **`192.168.1.129`** (can change — set a reservation when convenient)
-- `python tests/hardware/drive_console.py --host 192.168.1.129` — **works** (UDP path + motors respond)
+- Board IP is DHCP-assigned — read it from the boot log (`Connected! IP: ...`) or use `aegis-wroom.local`; set a router reservation when convenient
+- `python tests/hardware/drive_console.py --host <board-ip>` — **works** (UDP path + motors respond)
 - Power: tested with **alkaline 9V** — motion works but **underpowered** (high internal resistance / L298N drop). Next: switch to **2S Li-Po 7.4V, 1500–3000 mAh, ≥20C**; L298N from battery, common GND with ESP32 (USB OK for logic)
 
 **Not done yet this session:** TURRET / TILT / FIRE wiring, Stage 3 on-ground drive, deadband measurement for `body_turn_speed`
@@ -47,7 +47,7 @@ Full isolation notes kept in earlier revisions / still open: McAfee untested, mo
 - ✅ Command protocol format + pixel→degree principle: `SPEC.md` (protocol v1.4)
 - ✅ Each role + project structure: `AGENTS.md`
 - ✅ `firmware/esp32_cam` — written, flashed, working for real (MJPEG stream at `:81/stream` + index page at `:80`, ~38-58 fps)
-- ✅ `firmware/esp32_wroom` — protocol v1.4 MIX + real PWM/GPIO — **flashed COM5 2026-08-28**, IP **192.168.1.137**
+- ✅ `firmware/esp32_wroom` — protocol v1.4 MIX + real PWM/GPIO — **flashed COM5 2026-08-28**
 - ✅ Pin map: TRACK left GPIO4/5/13, TRACK right **GPIO32/33/18**, TURRET 19/21/22, TILT 23/25/26, FIRE 27
 - ✅ PC-side `src/` — all 6 roles, unit tests pass
 - ✅ Wokwi diagram present (sim CLI still flaky — skip)
@@ -63,7 +63,7 @@ Full isolation notes kept in earlier revisions / still open: McAfee untested, mo
   speed 255 from rest (`FORWARD` / `PIVOT_LEFT` / `PIVOT_RIGHT`). Operator records PSU amps; yaml
   is not edited until numbers exist.
 - Run: `python tests/hardware/speed_limits.py --host <board-ip>` (wheels off ground, PSU 3A limit)
-- WROOM DHCP this session: **`192.168.1.137`** (`.129` is stale — UDP to the old lease looks fine but motors stay still)
+- WROOM DHCP lease changed mid-project — **UDP to a stale lease looks fine (no error) but motors stay still**; always re-read the IP from the boot log after a re-flash
 - Deadband (wheels up, 2026-08-27): LEFT **60**, RIGHT **60** → `body_turn_speed` must stay above 60 (still 120, unedited)
 - Speed 255 current **wheels up / free-spin** (2026-08-27, PSU display): FORWARD peak 1 A / run 1 A; PIVOT_LEFT 1 / 0.95 A; PIVOT_RIGHT 2 / 2 A. Not at the 3A limit. On-ground (loaded) currents not measured yet.
 
@@ -72,14 +72,14 @@ Full isolation notes kept in earlier revisions / still open: McAfee untested, mo
 - Additive command `TRACK:MIX:left:right` (signed PWM -255..255 per wheel). Old 3-token TRACK unchanged.
 - `drive_console.py`: Q/E = forward curves (MIX), A/D = pivot, M = speed 255. `_steer_body` still `PIVOT_*`.
 - **Flash required** before Q/E do anything — old firmware `[DROP]`s MIX. Disconnect motor VIN before USB upload (no USB+VIN). Then `sightglass upload --env esp32wroom --port COM5` from the repo (or `pio run -e esp32wroom -t upload` in `firmware/esp32_wroom`).
-- Last known WROOM IP: **`192.168.1.137`** — re-flashed COM5 2026-08-28 23:37 via `sightglass upload --env esp32wroom`; boot log `Connected! IP: 192.168.1.137`, ping + `aegis-wroom.local` OK
+- Re-flashed COM5 2026-08-28 23:37 via `sightglass upload --env esp32wroom`; boot log reported `Connected! IP: ...`, ping + `aegis-wroom.local` OK
 
 ## 📌 TURRET pan-only console (2026-08-28)
 
 - `tests/hardware/turret_console.py` — A/D (or J/L) send `TURRET:LEFT/RIGHT`, SPACE stop. Same 20Hz / fail-safe as drive console.
 - Wire L298N#2 **channel A only**: IN1→GPIO19, IN2→GPIO21, ENA→GPIO22 (remove ENA jumper), motor on OUT1/OUT2. Leave IN3/IN4/ENB off. See `hardware/pin_map.md`.
 - Firmware already has `handleTurret` — re-flashed COM5 2026-08-28 evening (same IP).
-- **Polarity invert 2026-08-28:** `handleTurret` LEFT/RIGHT swapped in firmware (cannot swap OUT1/OUT2 on the robot). **OTA flashed** to `aegis-wroom.local` / `192.168.1.137` (USB COM not attached).
+- **Polarity invert 2026-08-28:** `handleTurret` LEFT/RIGHT swapped in firmware (cannot swap OUT1/OUT2 on the robot). **OTA flashed** to `aegis-wroom.local` / `<board-ip>` (USB COM not attached).
 - TILT / FIRE still not wired.
 
 ## Next tasks (in a reasonable order)
@@ -91,7 +91,7 @@ Full isolation notes kept in earlier revisions / still open: McAfee untested, mo
 4. Run `python -m src.main` for first full end-to-end (both boards on WiFi)
 5. Calibrate FOV, PID gains (velocity/effort), aim tolerance, fail-safe timeout
 6. Decide real `TARGET_CLASS` (currently `"person"` for pipeline testing)
-7. DHCP reservation / static IP for both boards (`192.168.1.129` was last WROOM lease — not durable)
+7. DHCP reservation / static IP for both boards (the lease has already moved once — not durable)
 8. Optional: project folder cleanup / Wokwi CLI rabbit hole (low priority)
 
 ---
